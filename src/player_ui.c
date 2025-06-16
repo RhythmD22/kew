@@ -1829,8 +1829,6 @@ int printPlayer(SongData *songdata, double elapsedSeconds, AppSettings *settings
                 fflush(stdout);
         }
 
-        return 0;
-
         /* ──────────────────────────────────────────────────────────────
            Push the current track info into SketchyBar (macOS only), with running time
            ────────────────────────────────────────────────────────────── */
@@ -1876,6 +1874,8 @@ int printPlayer(SongData *songdata, double elapsedSeconds, AppSettings *settings
         system(sb_cmd);
     }
 #endif
+
+        return 0;
 }
 
 void showHelp(void)
