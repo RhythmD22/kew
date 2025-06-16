@@ -1830,6 +1830,52 @@ int printPlayer(SongData *songdata, double elapsedSeconds, AppSettings *settings
         }
 
         return 0;
+
+        /* ──────────────────────────────────────────────────────────────
+           Push the current track info into SketchyBar (macOS only), with running time
+           ────────────────────────────────────────────────────────────── */
+#ifdef __APPLE__
+    /* Push 􀑪 Title – Artist [MM:SS/MM:SS] */
+    {
+        /* ---------- Build time string ---------- */
+        char timebuf[32];
+        double duration = getCurrentSongDuration();
+        if (duration <= 0.0) duration = 1.0;
+        int el_min  = (int)(elapsedSeconds / 60);
+        int el_sec  = (int)elapsedSeconds % 60;
+        int tot_min = (int)(duration / 60);
+        int tot_sec = (int)duration % 60;
+        snprintf(timebuf, sizeof(timebuf), "%d:%02d/%d:%02d",
+                 el_min, el_sec, tot_min, tot_sec);
+
+        char sb_cmd[1024] = {0};
+
+        /* ---------- Use SongData metadata if available ---------- */
+        if (songdata && songdata->metadata) {
+            const TagSettings *md = songdata->metadata;
+
+            if (strlen(md->artist) > 0)
+                snprintf(sb_cmd, sizeof(sb_cmd),
+                         "/opt/homebrew/bin/sketchybar --set widgets.media label=\"􀑪  %s - %s [%s]\"",
+                         md->title, md->artist, timebuf);
+            else
+                snprintf(sb_cmd, sizeof(sb_cmd),
+                         "/opt/homebrew/bin/sketchybar --set widgets.media label=\"􀑪  %s [%s]\"",
+                         md->title, timebuf);
+        } else if (currentSong != NULL) {
+            /* ---------- Fallback: file path ---------- */
+            snprintf(sb_cmd, sizeof(sb_cmd),
+                     "/opt/homebrew/bin/sketchybar --set widgets.media label=\"􀑪  %s [%s]\"",
+                     currentSong->song.filePath, timebuf);
+        } else {
+            /* ---------- Nothing playing ---------- */
+            snprintf(sb_cmd, sizeof(sb_cmd),
+                     "/opt/homebrew/bin/sketchybar --set widgets.media label=\"\"");
+        }
+
+        system(sb_cmd);
+    }
+#endif
 }
 
 void showHelp(void)
