@@ -154,13 +154,13 @@ enum EventType getMouseLastRowEvent(int mouseXOnLastRow)
 
 bool mouseInputHandled(char *seq, int i, struct Event *event)
 {
-        int term_w, term_h;
-        getTermSize(&term_w, &term_h);
-        (void)term_w;
+        char tmpSeq[MAX_SEQ_LEN];
+
+        c_strcpy(tmpSeq, seq, MAX_SEQ_LEN - 1);
 
         int mouseButton, mouseX, mouseY;
         mouseButton = mouseX = mouseY = 0;
-        char *mouseTmp = strtok(seq + 3, ";");
+        char *mouseTmp = strtok(tmpSeq + 3, ";");
 
         if (mouseTmp != NULL)
                 mouseButton = getNumber(mouseTmp);
@@ -170,8 +170,6 @@ bool mouseInputHandled(char *seq, int i, struct Event *event)
         mouseTmp = strtok(NULL, ";");
         if (mouseTmp != NULL)
                 mouseY = getNumber(mouseTmp);
-
-        int indent = getIndent();
 
         if (progressBarLength > 0)
         {
@@ -183,7 +181,7 @@ bool mouseInputHandled(char *seq, int i, struct Event *event)
         }
 
         // Clicked on last row
-        if (mouseY == lastRowRow && indent > 0 &&
+        if (mouseY == lastRowRow && lastRowCol > 0 &&
             mouseX - lastRowCol > 0 && mouseX - lastRowCol < (int)strlen(LAST_ROW) &&
             mouseButton != MOUSE_DRAG)
         {
@@ -433,6 +431,7 @@ void setEndOfListReached(AppState *state)
         audioData.currentFileIndex = 0;
         audioData.restart = true;
         loadingdata.loadA = true;
+        waitingForNext = true;
 
         pthread_mutex_lock(&dataSourceMutex);
         cleanupPlaybackDevice();
@@ -540,6 +539,8 @@ void refreshPlayer(UIState *uis)
 
 void resetListAfterDequeuingPlayingSong(AppState *state)
 {
+        startFromTop = true;
+
         if (lastPlayedId < 0)
                 return;
 
@@ -572,7 +573,6 @@ void resetListAfterDequeuingPlayingSong(AppState *state)
                 audioData.currentFileIndex = 0;
                 audioData.restart = true;
                 waitingForNext = true;
-                startFromTop = true;
                 loadingdata.loadA = true;
                 usingSongDataA = false;
 

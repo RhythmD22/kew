@@ -1,5 +1,19 @@
 # CHANGELOG
 
+### 3.4.1
+
+#### Bug Fixes
+
+- Fixed G key not bound for new config files. By @Chromium-3-Oxide.
+
+- Fixed restarting from stop by pressing space bar only working once. By @ravachol. Found by @Chromium-3-Oxide.
+
+- Fixed status/error message sometimes not being cleared. By @SynthSlayer. Found by @SynthSlayer.
+
+- Fixed playlist sometimes starting from last song when enqueueing all by pressing "MUSIC LIBRARY". By @ravachol. Found by j-lakeman.
+
+- Fixed fullwidth characters not being truncated correctly. By @ravachol. Found by Kuuuube.
+
 ### 3.4.0
 
 - Landscape View (horizontal layout). Something that was long overdue. Widen the window and it automatically goes into landscape mode. By @Ravachol. Suggested by @Saijin-Naib.
