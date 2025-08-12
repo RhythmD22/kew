@@ -16,6 +16,8 @@
 
 - Fixed fullwidth characters not being truncated correctly. By @ravachol. Found by Kuuuube.
 
+- Fixed running kew --version to show the version screen along with the logo makes the logo have a really dark gradient that is barely readable on some terminals. By @ravachol. Found by @Chromium-3-Oxide.
+
 ### 3.4.0
 
 - Landscape View (horizontal layout). Something that was long overdue. Widen the window and it automatically goes into landscape mode. By @Ravachol. Suggested by @Saijin-Naib.
