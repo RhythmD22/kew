@@ -72,7 +72,11 @@ AppSettings constructAppSettings(KeyValuePair *pairs, int count)
         c_strcpy(settings.visualizerEnabled, "1", sizeof(settings.visualizerEnabled));
         c_strcpy(settings.useConfigColors, "0", sizeof(settings.useConfigColors));
 #endif
+#ifdef __ANDROID__
+        c_strcpy(settings.hideLogo, "1", sizeof(settings.hideLogo));
+#else
         c_strcpy(settings.hideLogo, "0", sizeof(settings.hideLogo));
+#endif
         c_strcpy(settings.hideHelp, "0", sizeof(settings.hideHelp));
         c_strcpy(settings.cacheLibrary, "-1", sizeof(settings.cacheLibrary));
         c_strcpy(settings.visualizerHeight, "6", sizeof(settings.visualizerHeight));
@@ -110,7 +114,7 @@ AppSettings constructAppSettings(KeyValuePair *pairs, int count)
 
         c_strcpy(settings.hardShowKeys, "[17~", sizeof(settings.hardShowKeys));
         c_strcpy(settings.hardShowKeysAlt, "[17~", sizeof(settings.hardShowKeysAlt));
-#ifdef __APPLE__
+#if defined(__ANDROID__) || defined(__APPLE__)
         c_strcpy(settings.showPlaylistAlt, "Z", sizeof(settings.showPlaylistAlt));
         c_strcpy(settings.showTrackAlt, "C", sizeof(settings.showTrackAlt));
         c_strcpy(settings.showLibraryAlt, "X", sizeof(settings.showLibraryAlt));

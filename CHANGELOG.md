@@ -1,5 +1,17 @@
 # CHANGELOG
 
+### 3.5.0
+
+- Experimental Android compatibility! Please see ANDROID-INSTRUCTIONS.md for installation instructions using termux. By @Welpyes and @ravachol.
+
+- Improved installation instructions for Fedora and openSuse in the README.
+
+- Enabled the detection of FAAD2 (which handles m4a) on Fedora properly in the makefile. By @ravachol.
+
+- Made makefile compatible with openSuse tumbleweed.
+
+- Shows the playlist from the first song if the playing song will still be in view, instead of always starting from the playing song. By @ravachol. Suggested by @affhp.
+
 ### 3.4.1
 
 Adds a few minor bug fixes and you can now use playlists from the library view.

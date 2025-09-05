@@ -630,7 +630,7 @@ void printLastRow(int row, int col, UISettings *ui, AppSettings *settings)
         setTextColorRGB(lastRowColor.r, lastRowColor.g, lastRowColor.b);
 
         char text[100];
-#ifdef __APPLE__
+#if defined(__ANDROID__) || defined(__APPLE__)
         char playlist[8], library[8], track[8], search[8], help[8];
 
         // Assume settings->showPlaylistAlt etc. are defined properly
@@ -1377,7 +1377,7 @@ int displayTree(FileSystemEntry *root, int depth, int maxListSize, int maxNameWi
                         else
                         {
                                 filename[0] = '\0';
-
+                                pathEndsWith(root->fullPath, "m3u");
                                 isSameNameAsLastTime = (previousChosenLibRow == chosenLibRow);
 
                                 if (foundChosen)
@@ -1404,6 +1404,11 @@ int displayTree(FileSystemEntry *root, int depth, int maxListSize, int maxNameWi
                                 if (foundCurrent && chosenLibRow != libIter)
                                 {
                                         printf("\e[4m\e[1m");
+                                }
+
+                                if (pathEndsWith(root->fullPath, "m3u") || pathEndsWith(root->fullPath, "m3u8"))
+                                {
+                                    printf("\e[3m"); // print playlists in italics to distinguish them
                                 }
 
                                 printf("%s\n", filename);
