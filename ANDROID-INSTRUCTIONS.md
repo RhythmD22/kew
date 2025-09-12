@@ -2,28 +2,27 @@
 
 To run kew on Android please install the following applications :
 
-- **Termux** : A terminal emulator for Android that allows you to run Linux commands on your device.  
+- **Termux** : A terminal emulator for Android that allows you to run Linux commands on your device.
+
   [![Download Termux](https://img.shields.io/badge/Download-Termux-brightgreen?style=for-the-badge&logo=android)](https://github.com/termux/termux-app/releases/) - click to go to downloads page
 
 - **Termux-Api** : A plugin for Termux that executes Termux-api package commands.
 
-  [![Download Termux-Api](https://img.shields.io/badge/Download-Termux--X11-blue?style=for-the-badge&logo=android)](https://github.com/termux/termux-api/releases/download/v0.53.0/termux-api-app_v0.53.0+github.debug.apk) - click to download
+  [![Download Termux-Api](https://img.shields.io/badge/Download-Termux--API-blue?style=for-the-badge&logo=android)](https://github.com/termux/termux-api/releases/download/v0.53.0/termux-api-app_v0.53.0+github.debug.apk) - click to download
 
 ### **Termux Setup:**
 
 1. **Update and install dependencies**
 ```sh
-pkg install tur-repo -y && yes | pkg upgrade -y && pkg install clang pkg-config taglib fftw git make chafa glib libopus opusfile libvorbis libogg pulseaudio dbus termux-api
+pkg install tur-repo -y && yes | pkg upgrade -y && pkg install clang pkg-config taglib fftw git make chafa glib libopus opusfile libvorbis libogg dbus termux-api
 ```
 
-2. **Check Termux sound volume:**
-to make sure termux has sound use this command:
-```
-termux-volume music 10
-```
+2. **Make sure termux has sound:**
+
+On your phone, go to Settings -> Sound and Vibration -> Volume and make sure the level for Media is not 0.
 
 <details>
-<summary><b>Building Faad2 from source(optional)</b></summary>
+<summary><b>Building Faad2 from source (needed to run .m4a files)</b></summary>
 
 ```sh
 pkg install cmake make clang
@@ -35,33 +34,26 @@ make install
 
 </details>
 
-2. **Enable storage permissions**
+3. **Enable storage permissions**
 ```sh
 termux-setup-storage
 ```
 Tap allow for the setup to finish
 
-3. **Setup Pulseaudio for audio output**
+4. **Setup dbus for kew**
 * edit/create `~/.bashrc`
 ```
 nano ~/.bashrc
 ```
 
-* add this function and save it
+* In nano, add this line and save it (ctrl+x):
 ```bash
-headless () {
-        unset PULSE_SERVER
-        pulseaudio --kill &
-        pkill -9 pulseaudio
-        export PULSE_RUNTIME_PATH="$PREFIX/var/run/pulse"
-        pulseaudio --start --load="module-native-protocol-tcp auth-ip-acl=127.0.0.1 auth-anonymous=1" --load="module-sles-source" --exit-idle-time=-1
-        export XDG_RUNTIME_DIR=${TMPDIR}
-        export PULSE_SERVER=127.0.0.1
-        export $(dbus-launch)
-}
+alias kew="dbus-launch kew"
 ```
 
-### **Compiling Kew:** 
+* Restart the shell: `exec $SHELL
+
+### **Compiling Kew:**
 
 ```sh
 git clone https://github.com/ravachol/kew.git
@@ -72,16 +64,14 @@ make install
 
 ### **Run kew:**
 
-1. Restart the shell: `exec $SHELL`
-2. Run the `headless` command
+1. **Set kew's music library path**
+
+This could be ~/storage/music for instance:
 ```
-$ headless
+kew path <music path>
 ```
-3. Set kew's music library
-```
-kew path <music path> 
-```
-4. Run kew
+  
+2. **Run kew**
 ```
 kew
 ```
