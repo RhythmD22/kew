@@ -1,3 +1,5 @@
+#include "term.h"
+#include "utils.h"
 #include <fcntl.h>
 #include <poll.h>
 #include <pwd.h>
@@ -10,15 +12,14 @@
 #include <sys/select.h>
 #include <termios.h>
 #include <unistd.h>
-#include "utils.h"
-#include "term.h"
 
 /*
 
 term.c
 
  This file should contain only simple utility functions related to the terminal.
- They should work independently and be as decoupled from the application as possible.
+ They should work independently and be as decoupled from the application as
+possible.
 
 */
 
@@ -52,17 +53,19 @@ void setTextColorRGB(int r, int g, int b)
         if (b < 0 || b > 255)
                 b = 255;
 
-        printf("\033[0;38;2;%03u;%03u;%03um", (unsigned int)r, (unsigned int)g, (unsigned int)b);
+        printf("\033[0;38;2;%03u;%03u;%03um", (unsigned int)r, (unsigned int)g,
+               (unsigned int)b);
 }
 
 void getTermSize(int *width, int *height)
 {
         struct winsize w;
 
-        if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == -1 ||
-            w.ws_row == 0 || w.ws_col == 0)
+        if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == -1 || w.ws_row == 0 ||
+            w.ws_col == 0)
         {
-                fprintf(stderr, "Cannot determine terminal size. Make sure you're running in a terminal.\n");
+                fprintf(stderr, "Cannot determine terminal size. Make sure "
+                                "you're running in a terminal.\n");
                 exit(1);
         }
 
@@ -70,7 +73,7 @@ void getTermSize(int *width, int *height)
         *width = (int)w.ws_col;
 }
 
-void setNonblockingMode()
+void setNonblockingMode(void)
 {
         struct termios ttystate;
         tcgetattr(STDIN_FILENO, &ttystate);
@@ -80,7 +83,7 @@ void setNonblockingMode()
         tcsetattr(STDIN_FILENO, TCSANOW, &ttystate);
 }
 
-void restoreTerminalMode()
+void restoreTerminalMode(void)
 {
         struct termios ttystate;
         tcgetattr(STDIN_FILENO, &ttystate);
@@ -88,22 +91,13 @@ void restoreTerminalMode()
         tcsetattr(STDIN_FILENO, TCSANOW, &ttystate);
 }
 
-void saveCursorPosition()
-{
-        printf("\033[s");
-}
+void saveCursorPosition(void) { printf("\033[s"); }
 
-void restoreCursorPosition()
-{
-        printf("\033[u");
-}
+void restoreCursorPosition(void) { printf("\033[u"); }
 
-void setDefaultTextColor()
-{
-        printf("\033[0m");
-}
+void setDefaultTextColor(void) { printf("\033[0m"); }
 
-int isInputAvailable()
+int isInputAvailable(void)
 {
         fd_set fds;
         FD_ZERO(&fds);
@@ -122,21 +116,21 @@ int isInputAvailable()
         return result;
 }
 
-void hideCursor()
+void hideCursor(void)
 {
         printf("\033[?25l");
-        fflush(stdout);
 }
 
-void showCursor()
+void showCursor(void)
 {
         printf("\033[?25h");
         fflush(stdout);
 }
 
-void resetConsole()
+void resetConsole(void)
 {
-        // Print ANSI escape codes to reset terminal, clear screen, and move cursor to top-left
+        // Print ANSI escape codes to reset terminal, clear screen, and move
+        // cursor to top-left
         printf("\033\143");     // Reset to Initial State (RIS)
         printf("\033[3J");      // Clear scrollback buffer
         printf("\033[H\033[J"); // Move cursor to top-left and clear screen
@@ -144,23 +138,38 @@ void resetConsole()
         fflush(stdout);
 }
 
-void clearRestOfScreen()
+void clearRestOfScreen(void) { printf("\033[J"); }
+
+void clearLine(void)
 {
-        printf("\033[J");
+        printf("\033[2K");
 }
 
-void clearScreen()
+void clearRestOfLine(void)
+{
+        printf("\033[K");
+}
+
+void clearScreen(void)
 {
         printf("\033[3J");              // Clear scrollback buffer
-        printf("\033[2J\033[3J\033[H"); // Move cursor to top-left and clear screen and scrollback buffer
+        printf("\033[2J\033[3J\033[H"); // Move cursor to top-left and clear
+                                        // screen and scrollback buffer
 }
 
-void enableScrolling()
+void gotoFirstLineFirstRow(void)
 {
-        printf("\033[?7h");
+        printf("\033[H");
 }
 
-void disableInputBuffering(void)
+void enableScrolling(void) { printf("\033[?7h"); }
+
+void disableTerminalLineInput(void)
+{
+        setvbuf(stdout, NULL, _IOFBF, BUFSIZ);
+}
+
+void setRawInputMode(void)
 {
         struct termios term;
         tcgetattr(STDIN_FILENO, &term);
@@ -195,7 +204,8 @@ void cursorJumpDown(int numRows)
 
 int readInputSequence(char *seq, size_t seqSize)
 {
-        if (seq == NULL || seqSize < 2) // Buffer needs at least 1 byte + null terminator
+        if (seq == NULL ||
+            seqSize < 2) // Buffer needs at least 1 byte + null terminator
                 return 0;
 
         char c;
@@ -206,14 +216,16 @@ int readInputSequence(char *seq, size_t seqSize)
         // ASCII character (single byte, no continuation bytes)
         if ((c & 0x80) == 0)
         {
-                if (seqSize < 2) // Make sure there's space for the null terminator
+                if (seqSize <
+                    2) // Make sure there's space for the null terminator
                         return 0;
                 seq[0] = c;
                 seq[1] = '\0';
                 return 1;
         }
 
-        // Determine the length of the UTF-8 sequence and validate the first byte
+        // Determine the length of the UTF-8 sequence and validate the first
+        // byte
         int additionalBytes;
         if ((c & 0xE0) == 0xC0)
                 additionalBytes = 1; // 2-byte sequence
@@ -224,8 +236,7 @@ int readInputSequence(char *seq, size_t seqSize)
         else
                 return 0; // Invalid UTF-8 start byte
 
-        // Ensure the buffer can hold the full sequence plus the null terminator
-        if ((size_t)additionalBytes + 2 > seqSize)
+        if ((size_t)(additionalBytes + 1) >= seqSize)
                 return 0;
 
         seq[0] = c;
@@ -245,7 +256,8 @@ int readInputSequence(char *seq, size_t seqSize)
         // Null terminate the string
         seq[additionalBytes + 1] = '\0';
 
-        return additionalBytes + 1; // Return the total length including the null terminator
+        return additionalBytes +
+               1; // Return the total length including the null terminator
 }
 
 int getIndentation(int textWidth)
@@ -269,25 +281,25 @@ int getIndentation(int textWidth)
         return indent;
 }
 
-void enterAlternateScreenBuffer()
+void enterAlternateScreenBuffer(void)
 {
         // Enter alternate screen buffer
         printf("\033[?1049h");
 }
 
-void exitAlternateScreenBuffer()
+void exitAlternateScreenBuffer(void)
 {
         // Exit alternate screen buffer
         printf("\033[?1049l");
 }
 
-void enableTerminalMouseButtons()
+void enableTerminalMouseButtons(void)
 {
         // Enable program to accept mouse input as codes
         printf("\033[?1002h\033[?1006h");
 }
 
-void disableTerminalMouseButtons()
+void disableTerminalMouseButtons(void)
 {
         // Disable program to accept mouse input as codes
         printf("\033[?1002l\033[?1006l");
@@ -299,13 +311,13 @@ void setTerminalWindowTitle(char *title)
         printf("\033]2;%s\007", title);
 }
 
-void saveTerminalWindowTitle()
+void saveTerminalWindowTitle(void)
 {
         // Save terminal window title on the stack
         printf("\033[22;0t");
 }
 
-void restoreTerminalWindowTitle()
+void restoreTerminalWindowTitle(void)
 {
         // Restore terminal window title from the stack
         printf("\033[23;0t");

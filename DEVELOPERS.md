@@ -18,7 +18,7 @@ Before contributing, ensure you have the following tools installed on your devel
 
 1. Clone the repository:
    ```
-   git clone https://github.com/ravachol/kew.git
+   git clone https://codeberg.org/ravachol/kew.git
    cd kew
    ```
 
@@ -28,6 +28,16 @@ Before contributing, ensure you have the following tools installed on your devel
    ```
    make DEBUG=1 -j$(nproc)  # Use all available processor cores for faster builds
    ```
+
+### Debugging with VSCodium
+
+1. Install extension clangd, C/C++ Debug (gdb) and EditorConfig.
+
+2. Install the program bear that can generate a compile_commands.json. This helps clangd find libs.
+
+3. Run bear -- make.
+
+This should enable you to develop kew on VSCodium.
 
 ### Debugging with Visual Studio Code
 
@@ -167,7 +177,7 @@ If the paths in c_cpp_properties.json are wrong for your OS, to find the folder 
 
 To use Valgrind for memory debugging and profiling:
 
-1. Build your project with debug symbols (`-g`) and position-independent executables (`-no-pie`):
+1. Build kew with debug symbols. Run this command: make DEBUG=1 -j4
 
 2. Run Valgrind on your binary:
    ```

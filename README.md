@@ -1,5 +1,6 @@
 # kew
-[![GitHub license](https://img.shields.io/github/license/ravachol/kew?color=333333&style=for-the-badge)](https://github.com/ravachol/kew/blob/master/LICENSE)
+
+[![License](https://img.shields.io/github/license/ravachol/kew?color=333333&style=for-the-badge)](./LICENSE)
 
 Listen to music in the terminal.
 
@@ -7,25 +8,25 @@ Listen to music in the terminal.
 *Example screenshot running in Konsole: [Jenova 7: Lost Sci-Fi Movie Themes](https://jenova7.bandcamp.com/album/lost-sci-fi-movie-themes).*
 
 
+
 kew (/kjuː/) is a terminal music player.
+
+
 
 ## Features
 
  * Search a music library with partial titles.
  * Creates a playlist based on a matched directory.
- * Control the player with previous, next and pause.
- * Edit the playlist by adding and removing songs.
+ * Control the player with previous, next, pause, fast forward and rewind.
+ * Edit the playlist by adding, removing and reordering songs.
  * Gapless playback (between files of the same format and type).
+ * Explore the library and enqueue files or folders.
+ * Shuffle, Repeat or Repeat list.
+ * Export the playlist to an m3u file.
+ * Search your music library and add to the queue.
  * Supports MP3, FLAC, MPEG-4/M4A (AAC), OPUS, OGG, Webm and WAV audio.
  * Supports desktop events through MPRIS.
  * Private, no data is collected by kew.
-
-## Support Us
-
-It's possible to donate to kew's development (currently the maintainer) through ko-fi and github sponsors: 
- 
-[https://ko-fi.com/ravachol](https://ko-fi.com/ravachol)  
-[https://github.com/sponsors/ravachol](https://ko-fi.com/ravachol)
 
 ## Installing
 
@@ -224,7 +225,7 @@ https://www.reddit.com/r/bashonubuntuonwindows/comments/hrn1lz/wsl_sound_through
 Then run this (either git clone or unzip a release zip into a folder of your choice):
 
 ```bash
-git clone https://github.com/ravachol/kew.git
+git clone https://codeberg.org/ravachol/kew.git
 ```
 ```bash
 cd kew
@@ -372,7 +373,7 @@ kew looks better with Nerd Fonts: https://www.nerdfonts.com/.
 
 ## License
 
-Licensed under GPL. [See LICENSE for more information](https://github.com/ravachol/kew/blob/main/LICENSE).
+Licensed under GPL. [See LICENSE for more information](./LICENSE).
 
 ## Attributions
 
