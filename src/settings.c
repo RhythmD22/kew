@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "appstate.h"
 #include "file.h"
 #include "player_ui.h"
 #include "soundcommon.h"
@@ -87,14 +88,13 @@ AppSettings constructAppSettings(KeyValuePair *pairs, int count)
         // anyway. People need to switch
         c_strcpy(settings.visualizerEnabled, "1",
                  sizeof(settings.visualizerEnabled));
-        // Colors from album look wrong in default terminal
-        c_strcpy(settings.useConfigColors, "1",
-                 sizeof(settings.useConfigColors));
+        c_strcpy(settings.colorMode, "0",
+                 sizeof(settings.colorMode));
 #else
         c_strcpy(settings.visualizerEnabled, "1",
                  sizeof(settings.visualizerEnabled));
-        c_strcpy(settings.useConfigColors, "0",
-                 sizeof(settings.useConfigColors));
+        c_strcpy(settings.colorMode, "1",
+                 sizeof(settings.colorMode));
 #endif
 #ifdef __ANDROID__
         c_strcpy(settings.hideLogo, "1", sizeof(settings.hideLogo));
@@ -120,8 +120,12 @@ AppSettings constructAppSettings(KeyValuePair *pairs, int count)
         c_strcpy(settings.scrollDownAlt, "j", sizeof(settings.scrollDownAlt));
         c_strcpy(settings.switchNumberedSong, "G",
                  sizeof(settings.switchNumberedSong));
-        c_strcpy(settings.toggleColorsDerivedFrom, "i",
-                 sizeof(settings.toggleColorsDerivedFrom));
+        c_strcpy(settings.cycleColorsDerivedFrom, "i",
+                 sizeof(settings.cycleColorsDerivedFrom));
+        c_strcpy(settings.cycleThemes, "t",
+                 sizeof(settings.cycleThemes));
+        c_strcpy(settings.toggleNotifications, "n",
+                 sizeof(settings.toggleNotifications));
         c_strcpy(settings.toggleVisualizer, "v",
                  sizeof(settings.toggleVisualizer));
         c_strcpy(settings.toggleAscii, "b", sizeof(settings.toggleAscii));
@@ -209,7 +213,7 @@ AppSettings constructAppSettings(KeyValuePair *pairs, int count)
                  sizeof(settings.mouseAltScrollUpAction));
         c_strcpy(settings.mouseAltScrollDownAction, "8",
                  sizeof(settings.mouseAltScrollDownAction));
-        c_strcpy(settings.moveSongUp, "t", sizeof(settings.moveSongUp));
+        c_strcpy(settings.moveSongUp, "f", sizeof(settings.moveSongUp));
         c_strcpy(settings.moveSongDown, "g", sizeof(settings.moveSongDown));
         c_strcpy(settings.enqueueAndPlay, "^M",
                  sizeof(settings.enqueueAndPlay));
@@ -220,10 +224,14 @@ AppSettings constructAppSettings(KeyValuePair *pairs, int count)
         c_strcpy(settings.hardClearPlaylist, "\b",
                  sizeof(settings.hardClearPlaylist));
 
+        memcpy(settings.ansiTheme, "default", 8);
+
         if (pairs == NULL)
         {
                 return settings;
         }
+
+        bool foundCycleThemesSetting = false;
 
         for (int i = 0; i < count; i++)
         {
@@ -234,6 +242,11 @@ AppSettings constructAppSettings(KeyValuePair *pairs, int count)
                 if (strcmp(lowercaseKey, "path") == 0)
                 {
                         snprintf(settings.path, sizeof(settings.path), "%s",
+                                 pair->value);
+                }
+                else if (strcmp(lowercaseKey, "theme") == 0)
+                {
+                        snprintf(settings.theme, sizeof(settings.theme), "%s",
                                  pair->value);
                 }
                 else if (strcmp(lowercaseKey, "coverenabled") == 0)
@@ -332,8 +345,21 @@ AppSettings constructAppSettings(KeyValuePair *pairs, int count)
                 }
                 else if (strcmp(lowercaseKey, "togglecolorsderivedfrom") == 0)
                 {
-                        snprintf(settings.toggleColorsDerivedFrom,
-                                 sizeof(settings.toggleColorsDerivedFrom), "%s",
+                        snprintf(settings.cycleColorsDerivedFrom,
+                                 sizeof(settings.cycleColorsDerivedFrom), "%s",
+                                 pair->value);
+                }
+                else if (strcmp(lowercaseKey, "cyclethemes") == 0)
+                {
+                        snprintf(settings.cycleThemes,
+                                 sizeof(settings.cycleThemes), "%s",
+                                 pair->value);
+                        foundCycleThemesSetting = true;
+                }
+                else if (strcmp(lowercaseKey, "togglenotifications") == 0)
+                {
+                        snprintf(settings.toggleNotifications,
+                                 sizeof(settings.toggleNotifications), "%s",
                                  pair->value);
                 }
                 else if (strcmp(lowercaseKey, "togglevisualizer") == 0)
@@ -394,6 +420,11 @@ AppSettings constructAppSettings(KeyValuePair *pairs, int count)
                 {
                         snprintf(settings.allowNotifications,
                                  sizeof(settings.allowNotifications), "%s",
+                                 pair->value);
+                }
+                else if (strcmp(lowercaseKey, "colormode") == 0)
+                {
+                        snprintf(settings.colorMode, sizeof(settings.colorMode), "%s",
                                  pair->value);
                 }
                 else if (strcmp(lowercaseKey, "color") == 0)
@@ -692,6 +723,12 @@ AppSettings constructAppSettings(KeyValuePair *pairs, int count)
 
         freeKeyValuePairs(pairs, count);
 
+        if (!foundCycleThemesSetting)
+        {
+                // moveSongUp is no longer t, it needs to be changed
+                c_strcpy(settings.moveSongUp, "f", sizeof(settings.moveSongUp));
+        }
+
         return settings;
 }
 
@@ -813,8 +850,8 @@ void mapSettingsToKeys(AppSettings *settings, UISettings *ui,
             (EventMapping){settings->toggleRepeat, EVENT_TOGGLEREPEAT};
         mappings[17] =
             (EventMapping){settings->savePlaylist, EVENT_EXPORTPLAYLIST};
-        mappings[18] = (EventMapping){settings->toggleColorsDerivedFrom,
-                                      EVENT_TOGGLEPROFILECOLORS};
+        mappings[18] = (EventMapping){settings->cycleColorsDerivedFrom,
+                                      EVENT_CYCLECOLORMODE};
         mappings[19] = (EventMapping){settings->addToFavoritesPlaylist,
                                       EVENT_ADDTOFAVORITESPLAYLIST};
         mappings[20] =
@@ -885,6 +922,10 @@ void mapSettingsToKeys(AppSettings *settings, UISettings *ui,
             (EventMapping){settings->enqueueAndPlay, EVENT_ENQUEUEANDPLAY};
         mappings[59] = (EventMapping){settings->hardStop, EVENT_STOP};
         mappings[60] = (EventMapping){settings->sortLibrary, EVENT_SORTLIBRARY};
+        mappings[61] = (EventMapping){settings->cycleThemes,
+                                      EVENT_CYCLETHEMES};
+        mappings[62] = (EventMapping){settings->toggleNotifications,
+                                      EVENT_TOGGLENOTIFICATIONS};
 }
 
 char *getConfigFilePath(char *configdir)
@@ -1083,7 +1124,7 @@ void getConfig(AppSettings *settings, UISettings *ui)
         ui->coverEnabled = (settings->coverEnabled[0] == '1');
         ui->coverAnsi = (settings->coverAnsi[0] == '1');
         ui->visualizerEnabled = (settings->visualizerEnabled[0] == '1');
-        ui->useConfigColors = (settings->useConfigColors[0] == '1');
+        bool useConfigColors = (settings->useConfigColors[0] == '1');
         ui->quitAfterStopping = (settings->quitAfterStopping[0] == '1');
         ui->hideGlimmeringText = (settings->hideGlimmeringText[0] == '1');
         ui->mouseEnabled = (settings->mouseEnabled[0] == '1');
@@ -1097,25 +1138,22 @@ void getConfig(AppSettings *settings, UISettings *ui)
         ui->trackTitleAsWindowTitle =
             (settings->trackTitleAsWindowTitle[0] == '1');
 
-        int tmp = getNumber(settings->color);
-        if (tmp >= 0)
-                ui->mainColor = tmp;
-
-        tmp = getNumber(settings->repeatState);
+        int tmp = getNumber(settings->repeatState);
         if (tmp >= 0)
                 ui->repeatState = tmp;
 
-        tmp = getNumber(settings->artistColor);
-        if (tmp >= 0)
-                ui->artistColor = tmp;
-
-        tmp = getNumber(settings->enqueuedColor);
-        if (tmp >= 0)
-                ui->enqueuedColor = tmp;
-
-        tmp = getNumber(settings->titleColor);
-        if (tmp >= 0)
-                ui->titleColor = tmp;
+        tmp = getNumber(settings->colorMode);
+        if (tmp >= 0 && tmp < 3)
+        {
+                ui->colorMode = tmp;
+        }
+        else
+        {
+                if (useConfigColors)
+                        ui->colorMode = COLOR_MODE_DEFAULT;
+                else
+                         ui->colorMode = COLOR_MODE_ALBUM;
+        }
 
         tmp = getNumber(settings->replayGainCheckFirst);
         if (tmp >= 0)
@@ -1181,6 +1219,7 @@ void getConfig(AppSettings *settings, UISettings *ui)
                 ui->cacheLibrary = tmp;
 
         getMusicLibraryPath(settings->path);
+        snprintf(ui->themeName, sizeof(ui->themeName), "%s", settings->theme);
         free(configdir);
 }
 
@@ -1225,12 +1264,6 @@ void setConfig(AppSettings *settings, UISettings *ui)
                                sizeof(settings->visualizerEnabled))
                     : c_strcpy(settings->visualizerEnabled, "0",
                                sizeof(settings->visualizerEnabled));
-        if (settings->useConfigColors[0] == '\0')
-                ui->useConfigColors
-                    ? c_strcpy(settings->useConfigColors, "1",
-                               sizeof(settings->useConfigColors))
-                    : c_strcpy(settings->useConfigColors, "0",
-                               sizeof(settings->useConfigColors));
         if (settings->quitAfterStopping[0] == '\0')
                 ui->quitAfterStopping
                     ? c_strcpy(settings->quitAfterStopping, "1",
@@ -1310,20 +1343,6 @@ void setConfig(AppSettings *settings, UISettings *ui)
                          sizeof(settings->replayGainCheckFirst), "%d",
                          ui->replayGainCheckFirst);
 
-        if (settings->color[0] == '\0')
-                snprintf(settings->color, sizeof(settings->color), "%d",
-                         ui->mainColor);
-        if (settings->artistColor[0] == '\0')
-                snprintf(settings->artistColor, sizeof(settings->artistColor),
-                         "%d", ui->artistColor);
-        if (settings->titleColor[0] == '\0')
-                snprintf(settings->titleColor, sizeof(settings->titleColor),
-                         "%d", ui->titleColor);
-        if (settings->enqueuedColor[0] == '\0')
-                snprintf(settings->enqueuedColor,
-                         sizeof(settings->enqueuedColor), "%d",
-                         ui->enqueuedColor);
-
         if (settings->mouseLeftClickAction[0] == '\0')
                 snprintf(settings->mouseLeftClickAction,
                          sizeof(settings->mouseLeftClickAction), "%d",
@@ -1399,6 +1418,31 @@ void setConfig(AppSettings *settings, UISettings *ui)
         fprintf(file, "trackTitleAsWindowTitle=%s\n\n",
                 settings->trackTitleAsWindowTitle);
 
+
+        fprintf(file, "\n[colors]\n\n");
+
+        fprintf(file, "# Theme's go in ~/.config/kew/themes (on Linux/FreeBSD/Android), \n");
+        fprintf(file, "# and ~/Library/Preferences/kew/themes (on macOS), \n");
+        fprintf(file, "theme=%s\n\n", settings->theme);
+
+        fprintf(file, "# Color Mode is:\n");
+        fprintf(file, "# 0 = 16-bit color palette from default theme, \n");
+        fprintf(file, "# 1 = Colors derived from track cover, \n");
+        fprintf(file, "# 2 = Colors derived from TrueColor theme, \n\n");
+        fprintf(file, "# Color Mode:\n");
+        fprintf(file, "colorMode=%d\n\n", ui->colorMode);
+
+        fprintf(file, "# Terminal color theme is default.theme in \n");
+        fprintf(file, "# ~/.config/kew/themes (on Linux/FreeBSD/Android), \n");
+        fprintf(file, "# and ~/Library/Preferences/kew/themes (on macOS).\n\n");
+
+        fprintf(file, "\n[track cover]\n\n");
+        fprintf(file, "coverEnabled=%s\n", settings->coverEnabled);
+        fprintf(file, "coverAnsi=%s\n\n", settings->coverAnsi);
+
+        fprintf(file, "\n[mouse]\n\n");
+        fprintf(file, "mouseEnabled=%s\n\n", settings->mouseEnabled);
+
         fprintf(file, "\n[visualizer]\n\n");
         fprintf(file, "visualizerEnabled=%s\n", settings->visualizerEnabled);
         fprintf(file, "visualizerHeight=%s\n", settings->visualizerHeight);
@@ -1466,36 +1510,8 @@ void setConfig(AppSettings *settings, UISettings *ui)
                 settings->progressBarApproachingOddChar);
         fprintf(file, "progressBarCurrentEvenChar=%s\n",
                 settings->progressBarCurrentEvenChar);
-        fprintf(file, "progressBarCurrentOddChar=%s\n",
+        fprintf(file, "progressBarCurrentOddChar=%s\n\n",
                 settings->progressBarCurrentOddChar);
-
-        fprintf(file, "\n[colors]\n\n");
-
-        fprintf(file, "# Use the configuration file colors below\n");
-        fprintf(file, "useConfigColors=%s\n\n", settings->useConfigColors);
-
-        fprintf(file, "# Color values are 0=Black, 1=Red, 2=Green, 3=Yellow, "
-                      "4=Blue, 5=Magenta, 6=Cyan, 7=White\n");
-        fprintf(file, "# These mostly affect the library view.\n\n");
-
-        fprintf(file, "# Logo color:\n");
-        fprintf(file, "color=%s\n\n", settings->color);
-
-        fprintf(file, "# Header color in library view:\n");
-        fprintf(file, "artistColor=%s\n\n", settings->artistColor);
-
-        fprintf(file, "# Now playing song text in library view:\n");
-        fprintf(file, "titleColor=%s\n\n", settings->titleColor);
-
-        fprintf(file, "# Color of enqueued songs in library view:\n");
-        fprintf(file, "enqueuedColor=%s\n\n", settings->enqueuedColor);
-
-        fprintf(file, "\n[track cover]\n\n");
-        fprintf(file, "coverEnabled=%s\n", settings->coverEnabled);
-        fprintf(file, "coverAnsi=%s\n\n", settings->coverAnsi);
-
-        fprintf(file, "\n[mouse]\n\n");
-        fprintf(file, "mouseEnabled=%s\n\n", settings->mouseEnabled);
 
         fprintf(file, "# Mouse actions are 0=None, 1=Select song, 2=Toggle "
                       "pause, 3=Scroll up, 4=Scroll down, 5=Seek forward, "
@@ -1528,8 +1544,11 @@ void setConfig(AppSettings *settings, UISettings *ui)
         fprintf(file, "scrollDownAlt=%s\n", settings->scrollDownAlt);
         fprintf(file, "switchNumberedSong=%s\n", settings->switchNumberedSong);
         fprintf(file, "togglePause=%s\n", settings->togglePause);
+        fprintf(file, "toggleNotifications=%s\n", settings->toggleNotifications);
         fprintf(file, "toggleColorsDerivedFrom=%s\n",
-                settings->toggleColorsDerivedFrom);
+                settings->cycleColorsDerivedFrom);
+        fprintf(file, "cycleThemes=%s\n",
+                settings->cycleThemes);
         fprintf(file, "toggleVisualizer=%s\n", settings->toggleVisualizer);
         fprintf(file, "toggleAscii=%s\n", settings->toggleAscii);
         fprintf(file, "toggleRepeat=%s\n", settings->toggleRepeat);

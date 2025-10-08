@@ -25,7 +25,7 @@ possible.
 
 const int MAX_TERMINAL_ROWS = 9999;
 
-void setTextColor(int color)
+void setTerminalColor(int color)
 {
         /*
         - 0: Black
@@ -36,12 +36,34 @@ void setTextColor(int color)
         - 5: Magenta
         - 6: Cyan
         - 7: White
+        - 8: Bright Black (Gray)
+        - 9: Bright Red
+        - 10: Bright Green
+        - 11: Bright Yellow
+        - 12: Bright Blue
+        - 13: Bright Magenta
+        - 14: Bright Cyan
+        - 15: Bright White
         */
 
-        if (color < 0 || color > 7)
-                color = 7;
+        if (color < -1 || color > 15)
+                color = 7; // default to white
 
-        printf("\033[0;3%dm", color);
+        if (color == -1)
+        {
+                // Default foreground
+                printf("\033[39m");
+        }
+        else if (color < 8)
+        {
+                // Normal colors (30–37)
+                printf("\033[0;3%dm", color);
+        }
+        else
+        {
+                // Bright colors (90–97)
+                printf("\033[0;9%dm", color - 8);
+        }
 }
 
 void setTextColorRGB(int r, int g, int b)
@@ -59,18 +81,19 @@ void setTextColorRGB(int r, int g, int b)
 
 void getTermSize(int *width, int *height)
 {
-        struct winsize w;
+    struct winsize w;
 
-        if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == -1 || w.ws_row == 0 ||
-            w.ws_col == 0)
-        {
-                fprintf(stderr, "Cannot determine terminal size. Make sure "
-                                "you're running in a terminal.\n");
-                exit(1);
-        }
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == -1 ||
+        w.ws_row == 0 || w.ws_col == 0)
+    {
+        // Fallback for non-interactive environments (like Homebrew tests)
+        *height = 24;  // default terminal height
+        *width = 80;   // default terminal width
+        return;
+    }
 
-        *height = (int)w.ws_row;
-        *width = (int)w.ws_col;
+    *height = (int)w.ws_row;
+    *width = (int)w.ws_col;
 }
 
 void setNonblockingMode(void)
@@ -116,10 +139,7 @@ int isInputAvailable(void)
         return result;
 }
 
-void hideCursor(void)
-{
-        printf("\033[?25l");
-}
+void hideCursor(void) { printf("\033[?25l"); }
 
 void showCursor(void)
 {
@@ -140,15 +160,9 @@ void resetConsole(void)
 
 void clearRestOfScreen(void) { printf("\033[J"); }
 
-void clearLine(void)
-{
-        printf("\033[2K");
-}
+void clearLine(void) { printf("\033[2K"); }
 
-void clearRestOfLine(void)
-{
-        printf("\033[K");
-}
+void clearRestOfLine(void) { printf("\033[K"); }
 
 void clearScreen(void)
 {
@@ -157,17 +171,11 @@ void clearScreen(void)
                                         // screen and scrollback buffer
 }
 
-void gotoFirstLineFirstRow(void)
-{
-        printf("\033[H");
-}
+void gotoFirstLineFirstRow(void) { printf("\033[H"); }
 
 void enableScrolling(void) { printf("\033[?7h"); }
 
-void disableTerminalLineInput(void)
-{
-        setvbuf(stdout, NULL, _IOFBF, BUFSIZ);
-}
+void disableTerminalLineInput(void) { setvbuf(stdout, NULL, _IOFBF, BUFSIZ); }
 
 void setRawInputMode(void)
 {

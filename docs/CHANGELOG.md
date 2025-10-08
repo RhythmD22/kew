@@ -1,60 +1,119 @@
 # CHANGELOG
 
+### 3.5.3
+
+### Sponsors and Donations Wanted
+
+Thank you to for the generous donation @LTeder!
+
+Please support this effort:
+https://ko-fi.com/ravachol
+https://github.com/sponsors/ravachol.
+
+### 3.5.2
+
+- Fixed line in cover being erased in landscape mode on some terminals. (@hartalex)
+
+- Fixed long names no longer scrolling.
+
+- Fixed cover in landscape mode jumping from line 1 to line 2 and back when resizing window.
+
+### 3.5.1
+
+- Fix issue/test on homebrew.
+
 ### 3.5.0
 
-kew now works on Android phones!
+Now with themes and Android support
 
-I always wanted to have kew on my phone as a sort of walkman that I helped create. I was just looking at getting a FairPhone and installing Linux on it, and all kinds of things, when @welpyes showed up and he was trying to put kew on Termux. I didn't know Termux was that powerful, that all libs required would be available and so on. But in the end it wasn't much work at all to get it up and running.
+New in this release:
+
+- Fully customizable colors
+
+- Themes supporting both TrueColor RGB and the terminal 16-color palette
+
+- Theme pack with 16 included themes
+
+- Android support
+
+- Fixed TTY flickering
+
+- Improved search
+
+#### Themes
+
+Press t to cycle available themes.
+
+To set a theme from the command-line, run:
+
+kew theme themename (ie 'kew theme midnight')
+
+Put themes in \~/.config/kew/themes (\~/Library/Preferences/kew/themes on macOS).
+
+#### Android
 
 I haven't looked at battery life aspects yet, but staying in library view will be easier on the battery than using track view with the visualizer. You can also press v to toggle the visualizer on or off.
 
-The other news is that I have gone through the codebase with the help of SASTs and AIs to improve the quality of the code from a security standpoint. This has been a quite large undertaking, but one has to keep in mind that kew is currently an entirely offline app, which should make it less of a target already.
+#### TTY problems resolved
 
-Third, we now have a repo on Codeberg and that will be the preferred repo going forward. But people will be welcome to contribute in whichever place they prefer.
+The flickering in TTY has been fixed. Btw, if you are on tty or have limited colors and font on your terminal, try pressing i (for other color modes), v (for visualizer off) and b (for ascii cover). That should make it look much more easy on the eye!
 
-Fourth, we are now back on openSuse, as our package there was quite old, version 2.8.1. It hadn't been updated because we switched from FFmpeg to Faad for decoding .m4a files, and Faad wasn't available on openSuse until now. FFmpeg was overkill for that job and Faad is a much smaller lib. Fedora is now the only place that I know of that still doesn't have the Faad library in their official package repository, and therefore doesn't have a kew package. You can however install kew manually on Fedora, and even with Faad support. I have corrected some mistakes in those install instructions.
+#### Move to Codeberg
+
+We now have a repo on Codeberg and that will be the preferred repo going forward. But people will be welcome to contribute in whichever place they prefer. Except for PRs, PRs need to go to codeberg, develop branch.
+
+#### OpenSuse
+
+We are now back on openSuse, our package there hadn't been updated in a long time, due to openSuse not having faad lib.
+
+We still need a Fedora package. We already have a RPM spec that @kazeevn added and everything.
 
 Thank you to @welpyes for bringing up Termux and helping out with that, and @arcathrax for fixing the ultrawide monitor bug. Thank you to mantarimay for updating the openSuse library.
 
-Thank you also to a new sponsor, @BasedScience! You can join him at https://ko-fi.com/ravachol or https://github.com/sponsors/ravachol.
+#### Sponsors and Donations Wanted
+
+Thank you to a new sponsor, @BasedScience!
+
+Please support this effort:
+https://ko-fi.com/ravachol
+https://github.com/sponsors/ravachol.
 
 - Ravachol
 
-@welpyes,
-@ravachol
-        Android compatibility! Please see ANDROID-INSTRUCTIONS.md for how to get kew on your phone.
+#### New Features / Improvements
 
-@ravachol
-        Improved installation instructions for Fedora and openSuse in the README.
+- Theme colors, both TrueColor and 16-color palette theming. Cycle by pressing 't'.
 
-@ravachol
-        Enabled the detection of FAAD2 (which handles m4a) on Fedora properly in the makefile.
 
-@ravachol
-        Made makefile compatible with openSuse Tumbleweed. The kew package has been updated on openSuse for the first time in a long time, thank you mantarimay (maintainer on openSuse).
+- Android compatibility! Please see ANDROID-INSTRUCTIONS.md for how to get kew on your phone. (@welpyes)
 
-@ravachol
-        Added an icon indicating if the song is playing or paused before the title at the top when the logo is hidden.
+- Improved the search function so that albums are shown below an artist hit.
 
-@ravachol
-        Shows the playlist from the first song (if it's in view), instead of always starting from the playing song. Suggested by @affhp.
+- Improved installation instructions for Fedora and openSuse in the README.
 
-@ravachol
-        Improved the safety of various functions and addressed potential vulnerabilities.
+- Enabled the detection of FAAD2 (which handles m4a) on Fedora properly in the makefile.
 
-@ravachol
-        Don't make a space for the cover if there is none on landscape view.
+- Made makefile compatible with openSuse Tumbleweed. The kew package has been updated on openSuse for the first time in a long time, thank you mantarimay (maintainer on openSuse).
+
+- Added an icon indicating if the song is playing or paused before the title at the top when the logo is hidden.
+
+- Shows the playlist from the first song (if it's in view), instead of always starting from the playing song. Suggested by @affhp.
+
+- Improved the safety of various functions and addressed potential vulnerabilities.
+
+- Don't make a space for the cover if there is none on landscape view.
+
+- Improved the instructions in the help view.
 
 #### Bug Fixes
 
-@arcathrax
-        Fixed visualizer crashing the app on ultrawide monitors.
+- Fixed visualizer crashing the app on ultrawide monitors.
 
-@ravachol
-        Added null check for when exporting an empty playlist to .m3u.
+- Added null check for when exporting an empty playlist to .m3u.
 
-@ravachol
-        Prevent flickering when scrolling on TTY and likely on some other terminals as well.
+- Prevent flickering when scrolling on TTY and likely on some other terminals as well.
+
+- Search: fixed files being reordered when scrolling on macOS/kitty.
 
 ### 3.4.1
 
