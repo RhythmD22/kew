@@ -868,7 +868,7 @@ void print_footer(int row, int col)
         int random_number = get_random_number(1, 808);
 
         if (random_number == 808 && !ui->hideGlimmeringText && is_ascii_only(text)) {
-                print_glimmering_text(row, col, text, text_length, icons_text, footer_color);
+                print_glimmering_text(row, col, text, text_length, icons_text, f_color);
         } else {
                 printf("%s", text);
                 printf("%s", icons_text);
@@ -1068,7 +1068,7 @@ int show_key_bindings(SongData *songdata)
         }
 
         apply_color(ui->colorMode, ui->theme.text, ui->defaultColorRGB);
-        if (ui->colorMode != COLOR_MODE_ALBUM) {
+        if (ui->colorMode != COLOR_MODE_ALBUM && strcmp(ui->theme.theme_author, "Ravachol") != 0) {
                 printf(_(" Author: "));
                 apply_color(ui->colorMode, ui->theme.help, ui->color);
                 printf("%s", ui->theme.theme_author);
