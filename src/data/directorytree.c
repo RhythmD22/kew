@@ -228,8 +228,8 @@ int is_valid_entry_name(const char *name)
         if (name == NULL)
                 return 0;
 
-        size_t len = strnlen(name, MAXPATHLEN + 1);
-        if (len > MAX_NAME || len > MAXPATHLEN)
+        size_t len = strnlen(name, PATH_MAX + 1);
+        if (len > NAME_MAX || len > PATH_MAX)
                 return 0;
 
         if (len == 0)
@@ -244,8 +244,8 @@ int is_valid_entry_name(const char *name)
         for (size_t i = 0; i < len; ++i) {
                 unsigned char c = (unsigned char)name[i];
 
-                // Reject path separators
-                if (c == '/' || c == '\\')
+                // Reject path separator
+                if (c == '/')
                         return 0;
 
                 // Reject ASCII control chars and DEL
@@ -263,13 +263,6 @@ void set_full_path(FileSystemEntry *entry, const char *parent_path,
                 return;
 
         if (!is_valid_entry_name(entry_name)) {
-                char buf[257];
-                snprintf(buf, sizeof(buf), "%s", entry_name);
-                buf[sizeof(buf) - 1] = '\0'; // ensure null-termination
-                fprintf(stderr,
-                        "Invalid entry_name (possible path traversal): '%s'\n",
-                        buf);
-
                 return;
         }
 
