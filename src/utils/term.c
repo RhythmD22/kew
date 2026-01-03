@@ -160,6 +160,7 @@ void clear_screen(void)
         printf("\033[3J");              // Clear scrollback buffer
         printf("\033[2J\033[3J\033[H"); // Move cursor to top-left and clear
                                         // screen and scrollback buffer
+        fflush(stdout);
 }
 
 void goto_first_line_first_row(void)
@@ -323,8 +324,17 @@ void enable_terminal_mouse_buttons(void)
 
 void disable_terminal_mouse_buttons(void)
 {
-        // Disable program to accept mouse input as codes
-        printf("\033[?1002l\033[?1006l");
+        // Disable ALL mouse modes that might have been enabled
+        // Some terminals auto-enable 1004 when SGR mouse mode is on.
+        // VTE (Guake) will not clear it unless explicitly disabled.
+        printf("\033[?1000l");  // X10 mouse
+        printf("\033[?1001l");  // Highlight tracking
+        printf("\033[?1002l");  // Button tracking
+        printf("\033[?1003l");  // Any-motion tracking
+        printf("\033[?1004l");  // Focus events (VTE uses this!)
+        printf("\033[?1006l");  // SGR mouse mode
+        printf("\033[?1015l");  // urxvt mouse mode (rare but harmless)
+        fflush(stdout);
 }
 
 void set_terminal_window_title(char *title)
