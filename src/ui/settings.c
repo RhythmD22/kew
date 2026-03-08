@@ -10,7 +10,9 @@
 
 #include "common_ui.h"
 
+#include "common/common.h"
 #include "common/events.h"
+
 #include "termbox2_input.h"
 
 #include "common/appstate.h"
@@ -613,26 +615,27 @@ void set_default_config(AppSettings *settings)
                  sizeof(settings->saveRepeatShuffleSettings));
         c_strcpy(settings->trackTitleAsWindowTitle, "1",
                  sizeof(settings->trackTitleAsWindowTitle));
-#ifdef __APPLE__
-        // Visualizer looks wonky in default terminal but let's enable it
-        // anyway. People need to switch
+        c_strcpy(settings->discordRPCEnabled, "1",
+                 sizeof(settings->discordRPCEnabled));
         c_strcpy(settings->visualizerEnabled, "1",
                  sizeof(settings->visualizerEnabled));
+#ifdef __APPLE__
         c_strcpy(settings->colorMode, "0",
                  sizeof(settings->colorMode));
 #else
-        c_strcpy(settings->visualizerEnabled, "1",
-                 sizeof(settings->visualizerEnabled));
         c_strcpy(settings->colorMode, "1",
                  sizeof(settings->colorMode));
 #endif
+
 #ifdef __ANDROID__
         c_strcpy(settings->hideLogo, "1", sizeof(settings->hideLogo));
 #else
         c_strcpy(settings->hideLogo, "0", sizeof(settings->hideLogo));
 #endif
+        c_strcpy(settings->hideFooter, "0", sizeof(settings->hideFooter));
         c_strcpy(settings->hideHelp, "0", sizeof(settings->hideHelp));
         c_strcpy(settings->hideSideCover, "0", sizeof(settings->hideSideCover));
+        c_strcpy(settings->hideTimeStatus, "0", sizeof(settings->hideTimeStatus));
         c_strcpy(settings->visualizer_height, "6",
                  sizeof(settings->visualizer_height));
         c_strcpy(settings->visualizer_color_type, "2",
@@ -900,6 +903,14 @@ void construct_app_settings(AppSettings *settings, KeyValuePair *pairs, int coun
                         snprintf(settings->visualizerEnabled,
                                  sizeof(settings->visualizerEnabled), "%s",
                                  pair->value);
+                } else if (strcmp(lowercase_key, "hidetimestatus") == 0) {
+                        snprintf(settings->hideTimeStatus,
+                                 sizeof(settings->hideTimeStatus), "%s",
+                                 pair->value);
+                } else if (strcmp(lowercase_key, "discordrpcenabled") == 0) {
+                        snprintf(settings->discordRPCEnabled,
+                                 sizeof(settings->discordRPCEnabled), "%s",
+                                 pair->value);
                 } else if (strcmp(lowercase_key, "useconfigcolors") == 0) {
                         snprintf(settings->useConfigColors,
                                  sizeof(settings->useConfigColors), "%s",
@@ -1119,6 +1130,9 @@ void construct_app_settings(AppSettings *settings, KeyValuePair *pairs, int coun
                                  "%s", pair->value);
                 } else if (strcmp(lowercase_key, "hidehelp") == 0) {
                         snprintf(settings->hideHelp, sizeof(settings->hideHelp),
+                                 "%s", pair->value);
+                } else if (strcmp(lowercase_key, "hidefooter") == 0) {
+                        snprintf(settings->hideFooter, sizeof(settings->hideFooter),
                                  "%s", pair->value);
                 } else if (strcmp(lowercase_key, "hidesidecover") == 0) {
                         snprintf(settings->hideSideCover, sizeof(settings->hideSideCover),
@@ -1442,13 +1456,13 @@ char *get_config_file_path(char *configdir)
 
         if (configdir_length + 1 + settings_file_length + 1 > PATH_MAX) {
                 fprintf(stderr, "Error: File path exceeds maximum length.\n");
-                exit(1);
+                quit();
         }
 
         char *filepath = (char *)malloc(PATH_MAX);
         if (filepath == NULL) {
                 perror("malloc");
-                exit(1);
+                quit();
         }
 
         int written =
@@ -1457,7 +1471,7 @@ char *get_config_file_path(char *configdir)
                 fprintf(stderr,
                         "Error: snprintf failed or filepath truncated.\n");
                 free(filepath);
-                exit(1);
+                quit();
         }
         return filepath;
 }
@@ -1469,20 +1483,20 @@ char *get_prefs_file_path(char *prefsdir)
 
         if (dir_length + 1 + file_length + 1 > PATH_MAX) {
                 fprintf(stderr, "Error: File path exceeds maximum length.\n");
-                exit(1);
+                quit();
         }
 
         char *filepath = (char *)malloc(PATH_MAX);
         if (filepath == NULL) {
                 perror("malloc");
-                exit(1);
+                quit();
         }
 
         int written = snprintf(filepath, PATH_MAX, "%s/%s", prefsdir, STATE_FILE);
         if (written < 0 || written >= PATH_MAX) {
                 fprintf(stderr, "Error: snprintf failed or filepath truncated.\n");
                 free(filepath);
-                exit(1);
+                quit();
         }
 
         return filepath;
@@ -1528,23 +1542,47 @@ int mkdir_p(const char *path, mode_t mode)
         return 0;
 }
 
+void migrate_prefs_file(char *new_filepath)
+{
+        char *prefs_dir = get_prefs_path();
+        char *prefs_file_old = get_prefs_file_path(prefs_dir);
+
+        struct stat nfile = {0};
+        struct stat ofile = {0};
+        if (stat(new_filepath, &nfile) == -1 && stat(prefs_file_old, &ofile) == 0) {
+                if (rename(prefs_file_old, new_filepath) != 0) {
+                        perror("rename");
+                        free(prefs_file_old);
+                        free(prefs_dir);
+                        quit();
+                }
+        }
+
+        free(prefs_file_old);
+        free(prefs_dir);
+        return;
+}
+
 void get_prefs(AppSettings *settings, UISettings *ui)
 {
         int pair_count;
-        char *prefsdir = get_prefs_path();
+        char *configdir = get_config_path();
 
         setlocale(LC_ALL, "");
 
         struct stat st = {0};
-        if (stat(prefsdir, &st) == -1) {
-                if (mkdir_p(prefsdir, 0700) != 0) {
+        if (stat(configdir, &st) == -1) {
+                if (mkdir_p(configdir, 0700) != 0) {
                         perror("mkdir");
-                        free(prefsdir);
-                        exit(1);
+                        free(configdir);
+                        quit();
                 }
         }
 
-        char *filepath = get_prefs_file_path(prefsdir);
+        char *filepath = get_prefs_file_path(configdir);
+
+        // Move legacy state file to new location
+        migrate_prefs_file(filepath);
 
         KeyValuePair *pairs =
             read_key_value_pairs(filepath, &pair_count, &(ui->last_time_app_ran));
@@ -1573,7 +1611,7 @@ void get_prefs(AppSettings *settings, UISettings *ui)
                 set_volume(tmp);
 
         snprintf(ui->theme_name, sizeof(ui->theme_name), "%s", settings->theme);
-        free(prefsdir);
+        free(configdir);
 }
 
 void get_config(AppSettings *settings, UISettings *ui)
@@ -1587,7 +1625,7 @@ void get_config(AppSettings *settings, UISettings *ui)
         if (stat(configdir, &st) == -1) {
                 if (mkdir_p(configdir, 0700) != 0) {
                         perror("mkdir");
-                        exit(1);
+                        quit();
                 }
         }
 
@@ -1613,8 +1651,8 @@ void get_config(AppSettings *settings, UISettings *ui)
 void set_prefs(AppSettings *settings, UISettings *ui)
 {
         // Create the file path
-        char *prefsdir = get_prefs_path();
-        char *filepath = get_prefs_file_path(prefsdir);
+        char *configdir = get_config_path();
+        char *filepath = get_prefs_file_path(configdir);
 
         setlocale(LC_ALL, "");
 
@@ -1622,7 +1660,7 @@ void set_prefs(AppSettings *settings, UISettings *ui)
         if (file == NULL) {
                 fprintf(stderr, "Error opening file: %s\n", filepath);
                 free(filepath);
-                free(prefsdir);
+                free(configdir);
                 return;
         }
 
@@ -1689,7 +1727,7 @@ void set_prefs(AppSettings *settings, UISettings *ui)
         fprintf(file, "colorMode=%d\n\n", ui->colorMode);
         fprintf(file, "theme=%s\n\n", ui->theme_name);
 
-        free(prefsdir);
+        free(configdir);
         free(filepath);
 }
 
@@ -1782,6 +1820,19 @@ void set_config(AppSettings *settings, UISettings *ui)
                                sizeof(settings->visualizerEnabled))
                     : c_strcpy(settings->visualizerEnabled, "0",
                                sizeof(settings->visualizerEnabled));
+        if (settings->hideTimeStatus[0] == '\0')
+                ui->hideTimeStatus
+                    ? c_strcpy(settings->hideTimeStatus, "1",
+                               sizeof(settings->hideTimeStatus))
+                    : c_strcpy(settings->hideTimeStatus, "0",
+                               sizeof(settings->hideTimeStatus));
+        if (settings->discordRPCEnabled[0] == '\0')
+                ui->discordRPCEnabled
+                    ? c_strcpy(settings->discordRPCEnabled, "1",
+                               sizeof(settings->discordRPCEnabled))
+                    : c_strcpy(settings->discordRPCEnabled, "0",
+                               sizeof(settings->discordRPCEnabled));
+
         if (settings->quitAfterStopping[0] == '\0')
                 ui->quitAfterStopping
                     ? c_strcpy(settings->quitAfterStopping, "1",
@@ -1835,6 +1886,11 @@ void set_config(AppSettings *settings, UISettings *ui)
                                         sizeof(settings->hideHelp))
                              : c_strcpy(settings->hideHelp, "0",
                                         sizeof(settings->hideHelp));
+        if (settings->hideFooter[0] == '\0')
+                ui->hideFooter ? c_strcpy(settings->hideFooter, "1",
+                                          sizeof(settings->hideFooter))
+                               : c_strcpy(settings->hideFooter, "0",
+                                          sizeof(settings->hideFooter));
         if (settings->hideSideCover[0] == '\0')
                 ui->hideSideCover ? c_strcpy(settings->hideSideCover, "1",
                                              sizeof(settings->hideSideCover))
@@ -1864,6 +1920,8 @@ void set_config(AppSettings *settings, UISettings *ui)
         fprintf(file, "stripTrackNumbers=%s\n", settings->stripTrackNumbers);
         fprintf(file, "hideLogo=%s\n", settings->hideLogo);
         fprintf(file, "hideHelp=%s\n", settings->hideHelp);
+        fprintf(file, "hideTimeStatus=%s\n", settings->hideTimeStatus);
+        fprintf(file, "hideFooter=%s\n", settings->hideFooter);
         fprintf(file, "hideSideCover=%s\n\n", settings->hideSideCover);
 
         fprintf(file, "# Delay when drawing title in track view, set to 0 to "
@@ -1918,6 +1976,9 @@ void set_config(AppSettings *settings, UISettings *ui)
 
         fprintf(file, "\n[mouse]\n\n");
         fprintf(file, "mouseEnabled=%s\n\n", settings->mouseEnabled);
+
+        fprintf(file, "\n[discord]\n\n");
+        fprintf(file, "discordRPCEnabled=%s\n\n”", settings->discordRPCEnabled);
 
         fprintf(file, "\n[visualizer]\n\n");
         fprintf(file, "visualizerEnabled=%s\n", settings->visualizerEnabled);

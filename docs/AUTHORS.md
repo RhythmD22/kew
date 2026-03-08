@@ -15,6 +15,7 @@
 * Davis @kazemaksOG <davis.kazemaks@gmail.com>
 * @dandelion-75
 * DNEGEL3125 @DNEGEL3125
+* @episvr
 * Hans Petter Jansson @hpjansson <hpj@hpjansson.org>
 * @hiruocha
 * @hypercunx
@@ -42,7 +43,7 @@
 
 * Vafone @vafone
 * Nicolas F
-* Ravachol @ravachol <ravacholf@proton.me>
+* Ravachol @ravachol <kew-player@proton.me>
 * LeahTheSlug
 
 ## Translations

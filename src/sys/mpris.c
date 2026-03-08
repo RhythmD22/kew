@@ -8,6 +8,8 @@
 
 #include "mpris.h"
 
+#include "common/common.h"
+
 #include "sys_integration.h"
 
 #include "ui/control_ui.h"
@@ -20,10 +22,14 @@
 #include "sound/playback.h"
 #include "sound/volume.h"
 
+#ifdef USE_MACOS_MEDIA
+#include "macos_nowplaying.h"
+#endif
+
 #include <glib.h>
 #include <math.h>
 
-#ifndef __APPLE__
+#ifdef USE_DBUS
 
 static guint registration_id;
 static guint bus_name_id;
@@ -365,7 +371,7 @@ static void handle_set_position(GDBusConnection *connection,
 }
 #endif
 
-#ifndef __APPLE__
+#ifdef USE_DBUS
 static void handle_method_call(GDBusConnection *connection, const gchar *sender,
                                const gchar *object_path,
                                const gchar *interface_name,
@@ -413,7 +419,7 @@ static void handle_method_call(GDBusConnection *connection, const gchar *sender,
 }
 #endif
 
-#ifndef __APPLE__
+#ifdef USE_DBUS
 static void on_bus_name_acquired(GDBusConnection *connection, const gchar *name,
                                  gpointer user_data)
 {
@@ -808,7 +814,7 @@ static gboolean get_can_control(GDBusConnection *connection,
 }
 #endif
 
-#ifndef __APPLE__
+#ifdef USE_DBUS
 static GVariant *get_property_callback(GDBusConnection *connection,
                                        const gchar *sender,
                                        const gchar *object_path,
@@ -950,7 +956,7 @@ set_property_callback(GDBusConnection *connection, const gchar *sender,
 }
 #endif
 
-#ifndef __APPLE__
+#ifdef USE_DBUS
 // MPRIS MediaPlayer2 interface vtable
 static const GDBusInterfaceVTable media_player_interface_vtable = {
     .method_call = handle_method_call, // We're using individual method handlers
@@ -971,7 +977,7 @@ static const GDBusInterfaceVTable player_interface_vtable = {
 
 void emit_playback_stopped_mpris()
 {
-#ifndef __APPLE__
+#ifdef USE_DBUS
         if (get_gd_bus_connection()) {
                 g_dbus_connection_call(
                     get_gd_bus_connection(), NULL, "/org/mpris/MediaPlayer2",
@@ -982,12 +988,14 @@ void emit_playback_stopped_mpris()
                     G_VARIANT_TYPE("(v)"), G_DBUS_CALL_FLAGS_NONE, -1, NULL,
                     NULL, NULL);
         }
+#elif defined(USE_MACOS_MEDIA)
+        macos_set_playback_state_stopped();
 #endif
 }
 
 void cleanup_mpris(void)
 {
-#ifndef __APPLE__
+#ifdef USE_DBUS
         if (registration_id > 0) {
                 g_dbus_connection_unregister_object(get_gd_bus_connection(),
                                                     registration_id);
@@ -1014,12 +1022,14 @@ void cleanup_mpris(void)
                 g_main_context_unref(get_g_main_context());
                 set_g_main_context(NULL);
         }
+#elif defined(USE_MACOS_MEDIA)
+        cleanup_macos_nowplaying();
 #endif
 }
 
 void init_mpris(void)
 {
-#ifndef __APPLE__
+#ifdef USE_DBUS
         AppState *state = get_app_state();
 
         if (get_g_main_context() == NULL) {
@@ -1033,7 +1043,7 @@ void init_mpris(void)
         if (!get_gd_bus_connection()) {
                 g_dbus_node_info_unref(introspection_data);
                 g_printerr("Failed to connect to D-Bus\n");
-                exit(0);
+                quit();
         }
 
         const char *app_name = "org.mpris.MediaPlayer2.kew";
@@ -1045,7 +1055,7 @@ void init_mpris(void)
 
         if (bus_name_id == 0) {
                 printf(_("Failed to own D-Bus name: %s\n"), app_name);
-                exit(0);
+                quit();
         }
 
         registration_id = g_dbus_connection_register_object(
@@ -1058,7 +1068,7 @@ void init_mpris(void)
                 g_printerr("Failed to register media player object: %s\n",
                            error->message);
                 g_error_free(error);
-                exit(0);
+                quit();
         }
 
         player_registration_id = g_dbus_connection_register_object(
@@ -1071,16 +1081,18 @@ void init_mpris(void)
                 g_printerr("Failed to register media player object: %s\n",
                            error->message);
                 g_error_free(error);
-                exit(0);
+                quit();
         }
 
         g_dbus_node_info_unref(introspection_data);
+#elif defined(USE_MACOS_MEDIA)
+        init_macos_nowplaying();
 #endif
 }
 
 void emit_start_playing_mpris()
 {
-#ifndef __APPLE__
+#ifdef USE_DBUS
         GVariant *parameters = g_variant_new("(s)", "Playing");
         g_dbus_connection_emit_signal(
             get_gd_bus_connection(), NULL, "/org/mpris/MediaPlayer2",
@@ -1106,14 +1118,14 @@ gchar *sanitize_title(const gchar *title)
         return sanitized_dup;
 }
 
-#ifndef __APPLE__
+#ifdef USE_DBUS
 static guint64 last_emit_time = 0;
 #endif
 
 void emit_properties_changed(GDBusConnection *connection,
                              const gchar *property_name, GVariant *new_value)
 {
-#ifndef __APPLE__
+#ifdef USE_DBUS
         GVariantBuilder changed_properties_builder;
 
         if (connection == NULL || property_name == NULL || new_value == NULL)
@@ -1151,7 +1163,7 @@ void emit_properties_changed(GDBusConnection *connection,
 
 void emit_volume_changed(void)
 {
-#ifndef __APPLE__
+#ifdef USE_DBUS
         gdouble newVolume = (gdouble)get_current_volume() / 100;
 
         if (newVolume > 1.0)
@@ -1165,7 +1177,7 @@ void emit_volume_changed(void)
 
 void emit_shuffle_changed(void)
 {
-#ifndef __APPLE__
+#ifdef USE_DBUS
         gboolean shuffle_enabled = is_shuffle_enabled();
 
         // Emit the PropertiesChanged signal for the volume property
@@ -1178,7 +1190,7 @@ void emit_metadata_changed(const gchar *title, const gchar *artist,
                            const gchar *album, const gchar *cover_art_path,
                            const gchar *track_id, Node *current_song, gint64 length)
 {
-#ifndef __APPLE__
+#ifdef USE_DBUS
         guint64 current_time = g_get_monotonic_time();
         if (current_time - last_emit_time < 500000) // 0.5 seconds
         {
@@ -1306,6 +1318,12 @@ void emit_metadata_changed(const gchar *title, const gchar *artist,
 
         g_variant_builder_clear(&changed_properties_builder);
         g_variant_builder_clear(&metadata_builder);
+#elif defined(USE_MACOS_MEDIA)
+        (void)track_id;
+        (void)current_song;
+        macos_set_now_playing_info(title, artist, album, cover_art_path,
+                                   (double)length / G_USEC_PER_SEC);
+        macos_set_playback_state_playing();
 #else
         (void)title;
         (void)artist;

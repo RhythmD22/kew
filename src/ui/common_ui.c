@@ -19,7 +19,6 @@
 #include "utils/term.h"
 #include "utils/utils.h"
 
-#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <wchar.h>
@@ -125,12 +124,15 @@ void transfer_settings_to_ui(void)
         ui->coverAnsi = (settings->coverAnsi[0] == '1');
         ui->hideHelp = (settings->hideHelp[0] == '1');
         ui->visualizerEnabled = (settings->visualizerEnabled[0] == '1');
+        ui->hideTimeStatus = (settings->hideTimeStatus[0] == '1');
+        ui->discordRPCEnabled = (settings->discordRPCEnabled[0] == '1');
         ui->quitAfterStopping = (settings->quitAfterStopping[0] == '1');
         ui->hideGlimmeringText = (settings->hideGlimmeringText[0] == '1');
         ui->mouseEnabled = (settings->mouseEnabled[0] == '1');
         ui->shuffle_enabled = (settings->shuffle_enabled[0] == '1');
         ui->visualizerBrailleMode = (settings->visualizerBrailleMode[0] == '1');
         ui->hideLogo = (settings->hideLogo[0] == '1');
+        ui->hideFooter = (settings->hideFooter[0] == '1');
         ui->hideSideCover = (settings->hideSideCover[0] == '1');
         ui->saveRepeatShuffleSettings =
             (settings->saveRepeatShuffleSettings[0] == '1');
@@ -139,7 +141,6 @@ void transfer_settings_to_ui(void)
         ui->allowNotifications = (settings->allowNotifications[0] == '1');
         ui->coverEnabled = (settings->coverEnabled[0] == '1');
         ui->coverAnsi = (settings->coverAnsi[0] == '1');
-        ui->visualizerEnabled = (settings->visualizerEnabled[0] == '1');
         ui->shuffle_enabled = (settings->shuffle_enabled[0] == '1');
 
         int tmp_num_bytes =

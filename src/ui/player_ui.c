@@ -31,7 +31,9 @@
 #include "data/playlist.h"
 #include "data/song_loader.h"
 
+#include "sys/discord_rpc.h"
 #include "sys/sys_integration.h"
+
 #include "utils/term.h"
 #include "utils/utils.h"
 
@@ -87,6 +89,7 @@ static PixelData footer_color = {120, 120, 120};
 static FileSystemEntry *last_entry = NULL;
 static FileSystemEntry *chosen_dir = NULL;
 static bool is_same_name_as_last_time = false;
+static bool last_paused_state;
 static int term_w, term_h;
 static int has_chroma = -1;
 static bool next_visualization_requested = false;
@@ -724,6 +727,9 @@ void print_time(int row, int col, double elapsed_seconds, ma_uint32 sample_rate,
 {
         AppState *state = get_app_state();
 
+        if (state->uiSettings.hideTimeStatus)
+                return;
+
         apply_color(state->uiSettings.colorMode,
                     state->uiSettings.theme.trackview_time,
                     state->uiSettings.color);
@@ -867,6 +873,9 @@ void print_footer(int row, int col)
         UIState *uis = &(state->uiState);
 
         if (preferred_width < 0 || preferred_height < 0) // mini view
+                return;
+
+        if (ui->hideFooter)
                 return;
 
         footer_row = row;
@@ -1195,7 +1204,7 @@ int show_key_bindings(SongData *songdata)
         CHECK_LIST_LIMIT();
         apply_color(ui->colorMode, ui->theme.text, ui->defaultColorRGB);
         printf("\033[%d;%dH", num_printed_rows, indentation + 1);
-        printf(" Copyright © 2022-2025 Ravachol\n");
+        printf(" Copyright © 2022-2026 Ravachol\n");
 
         num_printed_rows += 1;
         CHECK_LIST_LIMIT();
@@ -1301,12 +1310,14 @@ void flip_next_page(void)
                                  : chosen_row;
                 trigger_refresh();
         } else if (state->currentView == SEARCH_VIEW) {
-                chosen_search_result_row += max_search_list_size - 1;
-                chosen_search_result_row =
-                    (chosen_search_result_row >= get_search_results_count())
-                        ? get_search_results_count() - 1
-                        : chosen_search_result_row;
-                trigger_refresh();
+                if (!is_at_last_row()) {
+                        chosen_search_result_row += max_search_list_size - 1;
+                        chosen_search_result_row =
+                            (chosen_search_result_row >= get_search_results_count())
+                                ? get_search_results_count() - 1
+                                : chosen_search_result_row;
+                        trigger_refresh();
+                }
         }
 }
 
@@ -1347,8 +1358,11 @@ void scroll_next(void)
                 trigger_refresh();
         } else if (state->currentView == SEARCH_VIEW) {
                 state->uiState.previous_chosen_search_row = chosen_search_result_row;
-                chosen_search_result_row++;
-                trigger_refresh();
+
+                if (!is_at_last_row()) {
+                        chosen_search_result_row++;
+                        trigger_refresh();
+                }
         }
 }
 
@@ -1416,9 +1430,11 @@ int print_logo_and_adjustments(SongData *song_data, int term_width, UISettings *
                 printf(_("/%s."), get_binding_string(EVENT_MOVESONGDOWN, true));
                 printf("\033[%d;%dH", ++row, col);
                 clear_rest_of_line();
-                printf("\033[%d;%dH", ++row, col);
-                clear_rest_of_line();
         }
+
+        printf("\033[%d;%dH", ++row, col);
+        clear_rest_of_line();
+
         return row;
 }
 
@@ -2700,6 +2716,19 @@ void refresh_player()
                 ps->notifySwitch = false;
 
                 notify_mpris_switch(get_current_song_data());
+
+                if (state->uiSettings.discordRPCEnabled)
+                        notify_discord_switch(get_current_song_data());
+        }
+
+        if (state->uiSettings.discordRPCEnabled) {
+                if (is_paused() && !last_paused_state) {
+                        notify_discord_pause();
+                } else if (!is_paused() && last_paused_state) {
+                        notify_discord_resume(get_current_song_data());
+                }
+
+                last_paused_state = is_paused();
         }
 
         if (should_refresh_player()) {

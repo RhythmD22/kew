@@ -4,16 +4,20 @@
 
 #### Enhancements
 
-- Chroma Visualizations.
+- Chroma ASCII Visualizations.
 
-This adds cool new visualizations to kew. It is not baked into kew and doesn't add bloat, but runs alongside it. So it requires that you install chroma separately if you want this, which can be found here:
+This adds cool new ASCII visualizations to kew. It is not baked into kew and doesn't add bloat, but runs alongside it. So it requires that you install chroma separately if you want this. Chroma can be found here:
 https://github.com/yuri-xyz/chroma.
 
 Chroma is started from within kew. Just switch to track view and press c to cycle through visualizations. Press b to disable.
 
 Thank you @yuri-xyz for helping out with this.
 
+- Discord RPC integration. by @ravachol. Suggested by @Chmosha.
+
 - kew play \<path\> \<path2\> command. by @Overionised. Suggested by @amigthea.
+
+- Support for macOS media keys. By @Rohyme and @petoem.
 
 - Lyrics page now centers the current lyric once it reaches the center of the screen. Suggested by @flashfire1001. Implemented by @Moksh-Parikh.
 
@@ -23,13 +27,21 @@ Thank you @yuri-xyz for helping out with this.
 
 - Expandable directories in search view. By @ravachol. Suggested by @BIZZARE6.
 
+- miniaudio bumped to version 0.11.24.
+
+- Hide footer option, hideFooter=1. By @ravachol. Suggested by @gizzmoguy.
+
+- Hide time status (elapsed seconds, song length and so on) option, hideTimeStatus=1. By @ravachol. Suggested By: Found a guy on reddit (u/haikuosextremist) who had this hidden in his kew.
+
+- Add option to disable the stripping of track numbers from file names in the library: stripTrackNumbers=0. By @episvr.
+
 #### Bug Fixes
 
 - Do not strip the number from a song title if it's connected to an alphanumeric character, like '10th song.flac'. Suggested by @bholroyd.
 
-- Fix switching view via mouse leads to wrong view or no view is changed on macOS. By @petoem.
+- Fixed switching view via mouse leads to wrong view or no view is changed on macOS. By @petoem.
 
-- Fix finishing a repeated playlist while in track view puts you back in library view. By @petoem.
+- Fixed finishing a repeated playlist while in track view puts you back in library view. By @petoem.
 
 - Last line of lyrics duplicated in landscape mode. By @petoem. Reported by @LeahTheSlug.
 
@@ -39,7 +51,13 @@ Thank you @yuri-xyz for helping out with this.
 
 - Fixed side cover on library view sometimes appearing at the bottom and not centered. Reported by @LeahTheSlug. By @petoem.
 
-- Fix cover not being fetched from files with uppercase extension (.MP3). By @ravachol.
+- Fixed cover not being fetched from files with uppercase extension (.MP3). By @ravachol.
+
+- Fixed crash when pressing enter on a different song while audio is playing on Termux. Found by @robertkirkman. By @ravachol.
+
+- Fixed crash on exit in Termux/Android. Found by @welpyes. By @ravachol.
+
+- Improved and more efficient stripping of numbers on filenames. By @petoem.
 
 #### Special Thanks
 

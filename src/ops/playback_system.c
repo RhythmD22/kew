@@ -22,13 +22,13 @@ void playback_safe_cleanup(void)
 {
         AppState *state = get_app_state();
         pthread_mutex_lock(&(state->data_source_mutex));
-        pb_cleanup_playback_device();
+        cleanup_playback_device();
         pthread_mutex_unlock(&(state->data_source_mutex));
 }
 
 void playback_cleanup(void)
 {
-        pb_cleanup_playback_device();
+        cleanup_playback_device();
 }
 
 void switch_audio_implementation(void)

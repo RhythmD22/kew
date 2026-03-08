@@ -27,7 +27,7 @@ kew (/kjuː/) is a terminal music player.
 
  * Search a music library with partial titles from the command-line.
  * Creates a playlist automatically based on matched song, album or artist.
- * Private, no data is collected by kew.
+ * Private, no data is collected by kew*.
  * Music without distractions or algorithmic manipulation.
  * Full color covers in sixel-capable terminals.
  * Visualizer with various settings.
@@ -40,6 +40,7 @@ kew (/kjuː/) is a terminal music player.
  * Supports lyrics through .lrc files, embedded SYLT (Mp3) or Vorbis comments (Flac,Ogg,Opus).
  * Use themes or colors derived from covers.
 
+ *kew displays it's status in Discord by default, but this can be disabled both in Discord and in the kew config file kewrc.
 
  ## ⚠️ This repository has moved to Codeberg!
 Active development and issue tracking now happens at [Codeberg](https://codeberg.org/ravachol/kew).
@@ -70,7 +71,7 @@ artist folder->album folder(s)->track(s).
 ```
 kew (starting kew with no arguments opens the library view where you can choose what to play)
 
-kew all (plays all songs, up to 20 000, in your library, shuffled)
+kew all (plays all songs, up to 50 000, in your library, shuffled)
 
 kew albums (plays all albums, up to 2000, randomly one after the other)
 
@@ -167,11 +168,13 @@ bind = +, volUp, +5%
 
 If you have an old install of kew, delete the kewrc file to make this style of bindings appear.
 
-kew state (for settings that can be changed in-app) is kept in ~/.local/state/kewstaterc.
+kew state (for settings that can be changed in-app) is kept in ~/.config/kew/kewstaterc.
 
 If you change a setting in-app it will be tracked by kewstaterc and not kewrc.
 
-kewrc is never changed by kew with the exception of when you run kew path. If you delete your kewrc a new default one will be generated.
+kewrc is never changed by kew with the exception of when you run kew path.
+
+If you delete your kewrc a new default one will be generated. You wont get newer config options listed in your config file unless you do this.
 
 ## Themes
 
@@ -234,15 +237,29 @@ There is also a favorites playlist function:
 
 Add current song: press <kbd>.</kbd>
 
-To load 'kew list fav':
+To load 'kew list fav': kew .
 
-```bash
-kew .
-```
+## Scrobbling
+
+kew's private and offline nature means we don't support Scrobbling/last.fm directly. Instead tools such as PanoScrobbler are recommended. See: https://github.com/kawaiiDango/pano-scrobbler.
 
 ## License
 
 Licensed under GPL. [See LICENSE for more information](./LICENSE).
+
+## Star History
+
+<a href="https://www.star-history.com/#ravachol/kew&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ravachol/kew&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ravachol/kew&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=ravachol/kew&type=date&legend=top-left" />
+ </picture>
+</a>
+
+Github Stars: [![GitHub stars](https://img.shields.io/github/stars/ravachol/kew?style=social)](https://github.com/ravachol/kew/stargazers)
+
+Codeberg Stars: [![Codeberg stars](https://img.shields.io/gitea/stars/ravachol/kew?gitea_url=https://codeberg.org)](https://codeberg.org/ravachol/kew/stars)
 
 
 ## Attributions

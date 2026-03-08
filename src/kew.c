@@ -35,12 +35,13 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
 #endif
 
 #ifndef KEW_VERSION
-#define KEW_VERSION "unknown"
+#define KEW_VERSION "4.0.0"
 #endif
 
 #include "common/appstate.h"
 #include "common/common.h"
 
+#include "sys/discord_rpc.h"
 #include "sys/mpris.h"
 #include "sys/notifications.h"
 #include "sys/sys_integration.h"
@@ -90,6 +91,13 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
 
 AppState *state_ptr = NULL;
 
+/**
+ * @brief Updates the player state based on window size changes.
+ *
+ * This function checks if the terminal window size has changed. If it has, it sets
+ * the resize flag and adjusts the UI state. If the resize flag is set, it will resize
+ * the UI; otherwise, it refreshes the player.
+ */
 void update_player(void)
 {
         AppState *state = get_app_state();
@@ -109,6 +117,12 @@ void update_player(void)
         }
 }
 
+/**
+ * @brief Prepares the next song for playback.
+ *
+ * This function performs actions like resetting the clock, finishing loading,
+ * and preparing the next song to be played. It handles playlist and repeat logic.
+ */
 void prepare_next_song(void)
 {
         AppState *state = get_app_state();
@@ -137,6 +151,16 @@ void prepare_next_song(void)
         }
 }
 
+/**
+ * @brief Prepares and plays the specified song.
+ *
+ * This function sets up the player to play the specified song, unloads previous songs,
+ * and loads the new song. It then resumes playback, creating a playback device if needed.
+ *
+ * @param song Pointer to the song (Node) to be played.
+ *
+ * @return int Status of the operation: 0 on success, negative value on error.
+ */
 int prepare_and_play_song(Node *song)
 {
         if (!song)
@@ -179,6 +203,12 @@ int prepare_and_play_song(Node *song)
         return res;
 }
 
+/**
+ * @brief Checks and loads the next song if necessary.
+ *
+ * This function checks if a song needs to be loaded, either due to a restart or if the
+ * playlist is in shuffle mode. It prepares and loads the next song in the playlist if needed.
+ */
 void check_and_load_next_song(void)
 {
         AppState *state = get_app_state();
@@ -219,6 +249,13 @@ void check_and_load_next_song(void)
         }
 }
 
+/**
+ * @brief Loads the next song if needed, considering the current state of the playlist and player.
+ *
+ * This function loads the next song from the playlist if the current song has finished or
+ * if the player is waiting for the next song. It handles various conditions, including
+ * handling end-of-list behavior and errors.
+ */
 void load_waiting_music(void)
 {
         PlayList *playlist = get_playlist();
@@ -244,209 +281,12 @@ void load_waiting_music(void)
         }
 }
 
-gboolean mainloop_callback(gpointer data)
-{
-        (void)data;
-
-        calc_elapsed_time(get_current_song_duration());
-        increment_update_counter();
-        handle_cooldown();
-
-        int update_counter = get_update_counter();
-
-        // Different views run at different speeds to lower the impact on system
-        // requirements
-        if ((update_counter % 2 == 0 && state_ptr->currentView == SEARCH_VIEW) ||
-            (state_ptr->currentView == TRACK_VIEW || update_counter % 3 == 0)) {
-                process_d_bus_events();
-
-                update_player();
-
-                load_waiting_music();
-        }
-
-        return TRUE;
-}
-
-static gboolean quit_on_signal(gpointer user_data)
-{
-        GMainLoop *loop = (GMainLoop *)user_data;
-        g_main_loop_quit(loop);
-        quit();
-        return G_SOURCE_REMOVE; // Remove the signal source
-}
-
-void create_loop(void)
-{
-        update_last_input_time();
-
-        GMainLoop *main_loop = g_main_loop_new(NULL, FALSE);
-
-        g_unix_signal_add(SIGINT, quit_on_signal, main_loop);
-        g_unix_signal_add(SIGHUP, quit_on_signal, main_loop);
-        g_timeout_add(34, mainloop_callback, NULL);
-        g_main_loop_run(main_loop);
-        g_main_loop_unref(main_loop);
-}
-
-void run(bool start_playing)
-{
-        AppState *state = get_app_state();
-        PlayList *playlist = get_playlist();
-        PlayList *unshuffled_playlist = get_unshuffled_playlist();
-        PlaybackState *ps = get_playback_state();
-        UserData *user_data = audio_data.pUserData;
-
-        if (unshuffled_playlist == NULL) {
-                set_unshuffled_playlist(deep_copy_playlist(playlist));
-        }
-
-        if (state->uiSettings.saveRepeatShuffleSettings) {
-                if (state->uiSettings.repeatState == 1)
-                        toggle_repeat();
-                if (state->uiSettings.repeatState == 2) {
-                        toggle_repeat();
-                        toggle_repeat();
-                }
-                if (state->uiSettings.shuffle_enabled)
-                        toggle_shuffle();
-        }
-
-        if (playlist->head == NULL) {
-                state->currentView = LIBRARY_VIEW;
-        }
-
-        init_mpris();
-
-        if (state->uiSettings.chromaPreset >= 0) {
-                chroma_set_current_preset(state->uiSettings.chromaPreset);
-                state->uiSettings.visualizations_instead_of_cover = true;
-        }
-        ps->loadedNextSong = false;
-        if (start_playing)
-                ps->waitingForPlaylist = true;
-
-        audio_data.currentFileIndex = 0;
-        user_data->current_song_data = NULL;
-        user_data->songdataA = NULL;
-        user_data->songdataB = NULL;
-        user_data->songdataADeleted = true;
-        user_data->songdataBDeleted = true;
-
-        if (playlist->count != 0)
-                check_and_load_next_song();
-
-        create_loop();
-
-        clear_screen();
-        fflush(stdout);
-}
-
-void init_locale(void)
-{
-        setlocale(LC_ALL, "");
-        setlocale(LC_CTYPE, "");
-
-        bindtextdomain("kew", LOCALEDIR);
-        textdomain("kew");
-}
-
-void kew_init(bool set_library_enqueued_status)
-{
-        AppState *state = get_app_state();
-
-        set_nonblocking_mode();
-
-        disable_terminal_line_input();
-        init_resize();
-        ioctl(STDOUT_FILENO, TIOCGWINSZ, &state->uiState.windowSize);
-        enable_scrolling();
-
-        init_input();
-
-        // This is to not stop Chroma when we can't keep up with it, instead just return an error
-        signal(SIGPIPE, SIG_IGN);
-
-        PlaybackState *ps = get_playback_state();
-        UserData *user_data = audio_data.pUserData;
-        PlayList *playlist = get_playlist();
-        state->tmpCache = create_cache();
-
-        c_strcpy(ps->loadingdata.file_path, "", sizeof(ps->loadingdata.file_path));
-        ps->loadingdata.songdataA = NULL;
-        ps->loadingdata.songdataB = NULL;
-        ps->loadingdata.loadA = true;
-        ps->loadingdata.loadingFirstDecoder = true;
-        audio_data.restart = true;
-        user_data->songdataADeleted = true;
-        user_data->songdataBDeleted = true;
-        unsigned int seed = (unsigned int)time(NULL);
-
-        srand(seed);
-        pthread_mutex_init(&(ps->loadingdata.mutex), NULL);
-        pthread_mutex_init(&(playlist->mutex), NULL);
-        free_search_results();
-        reset_chosen_dir();
-        create_library(set_library_enqueued_status);
-        state->uiSettings.LAST_ROW = _(" [F2 Playlist|F3 Library|F4 Track|F5 Search|F6 Help]");
-        clear_screen();
-        fflush(stdout);
-
-        set_term_size();
-
-#ifdef DEBUG
-        // g_setenv("G_MESSAGES_DEBUG", "all", TRUE);
-        state->uiState.logFile = freopen("error.log", "w", stderr);
-        if (state->uiState.logFile == NULL) {
-                fprintf(stdout, "Failed to redirect stderr to error.log\n");
-        }
-#else
-        FILE *null_stream = freopen("/dev/null", "w", stderr);
-        (void)null_stream;
-#endif
-}
-
-void init_default_state(void)
-{
-        bool set_library_enqueued_status = true;
-        kew_init(set_library_enqueued_status);
-
-        AppState *state = get_app_state();
-        FileSystemEntry *library = get_library();
-        PlayList *playlist = get_playlist();
-        PlaybackState *ps = get_playback_state();
-
-        add_enqueued_songs_to_playlist(library, playlist);
-
-        set_unshuffled_playlist(deep_copy_playlist(playlist));
-
-        reset_list_after_dequeuing_playing_song();
-
-        audio_data.restart = true;
-        audio_data.end_of_list_reached = true;
-        ps->loadedNextSong = false;
-
-        state->currentView = LIBRARY_VIEW;
-
-        run(false);
-}
-
-static bool handle_play_command_playlist(int *argc, char **argv)
-{
-        char de_expanded[PATH_MAX];
-        // Working with multiple files
-        //validate all paths
-
-        for (int i = 2; i < *argc; i++) {
-                if ((expand_path(argv[i], de_expanded) != 0) || (exists_file(de_expanded) == -1)) {
-                        return false;
-                }
-        }
-        play_command_with_playlist(argc, argv);
-
-        return true;
-}
-
+/**
+ * @brief Shuts down the application and cleans up resources.
+ *
+ * This function stops playback, frees resources, and shuts down the application. It handles
+ * cleanup tasks like saving settings, stopping playback, and freeing memory.
+ */
 void kew_shutdown()
 {
         AppState *state = get_app_state();
@@ -454,10 +294,6 @@ void kew_shutdown()
         FileSystemEntry *library = get_library();
         AppSettings *settings = get_app_settings();
         PlayList *favorites_playlist = get_favorites_playlist();
-
-#ifndef __ANDROID__
-        stop_at_shutdown();
-#endif
 
         pthread_mutex_lock(&(state->data_source_mutex));
 
@@ -490,6 +326,9 @@ void kew_shutdown()
         bool wait_until_complete = true;
         update_library_if_changed_detected(wait_until_complete);
         shutdown_input();
+
+        if (state->uiSettings.discordRPCEnabled)
+                discord_rpc_shutdown();
         free_search_results();
         cleanup_mpris();
         set_path(settings->path);
@@ -547,9 +386,289 @@ void kew_shutdown()
                 printf(_("%s\n"), get_error_message());
         }
 
+        printf("\n");
         fflush(stdout);
+        exit(0);
 }
 
+/**
+ * @brief Main callback for the event loop, runs periodically.
+ *
+ * This function handles actions such as updating elapsed time, processing events, and
+ * updating the player UI. It runs at different speeds based on the current view.
+ *
+ * @param data Additional data passed to the callback (unused in this case).
+ *
+ * @return gboolean Returns TRUE to keep the callback running.
+ */
+gboolean mainloop_callback(gpointer data)
+{
+        (void)data;
+
+        calc_elapsed_time(get_current_song_duration());
+        increment_update_counter();
+        handle_cooldown();
+
+        if (should_exit()) {
+                g_main_loop_quit((GMainLoop *) data);
+                return FALSE;
+        }
+
+        int update_counter = get_update_counter();
+
+        // Different views run at different speeds to lower the impact on system
+        // requirements
+        if ((update_counter % 2 == 0 && state_ptr->currentView == SEARCH_VIEW) ||
+            (state_ptr->currentView == TRACK_VIEW || update_counter % 3 == 0)) {
+                process_d_bus_events();
+
+                update_player();
+
+                load_waiting_music();
+        }
+
+        return TRUE;
+}
+
+/**
+ * @brief Quits the application upon receiving a signal.
+ *
+ * This function terminates the main loop and cleans up resources upon receiving a termination signal.
+ *
+ * @param user_data User data (GMainLoop) passed to the signal handler.
+ *
+ * @return gboolean Returns G_SOURCE_REMOVE to remove the signal source.
+ */
+static gboolean quit_on_signal(gpointer user_data)
+{
+        GMainLoop *loop = (GMainLoop *)user_data;
+        g_main_loop_quit(loop);
+        return G_SOURCE_REMOVE; // Remove the signal source
+}
+
+/**
+ * @brief Creates and runs the main event loop.
+ *
+ * This function sets up the main event loop and signals for quitting. It uses
+ * `g_main_loop_run()` to run the loop and handles updates at regular intervals.
+ */
+void create_loop(void)
+{
+        update_last_input_time();
+
+        GMainLoop *main_loop = g_main_loop_new(NULL, FALSE);
+
+        g_unix_signal_add(SIGINT, quit_on_signal, main_loop);
+        g_unix_signal_add(SIGHUP, quit_on_signal, main_loop);
+        g_unix_signal_add(SIGTERM, quit_on_signal, main_loop);
+        g_timeout_add(34, mainloop_callback, main_loop);
+        g_main_loop_run(main_loop);
+        g_main_loop_unref(main_loop);
+        kew_shutdown();
+}
+
+/**
+ * @brief Runs the application with the specified settings.
+ *
+ * This function initializes various settings and begins playing music, depending on the
+ * provided `start_playing` parameter. It also handles the playlist and UI settings.
+ *
+ * @param start_playing Boolean flag to indicate whether to start playing immediately.
+ */
+void run(bool start_playing)
+{
+        AppState *state = get_app_state();
+        PlayList *playlist = get_playlist();
+        PlayList *unshuffled_playlist = get_unshuffled_playlist();
+        PlaybackState *ps = get_playback_state();
+        UserData *user_data = audio_data.pUserData;
+
+        if (unshuffled_playlist == NULL) {
+                set_unshuffled_playlist(deep_copy_playlist(playlist));
+        }
+
+        if (state->uiSettings.saveRepeatShuffleSettings) {
+                if (state->uiSettings.repeatState == 1)
+                        toggle_repeat();
+                if (state->uiSettings.repeatState == 2) {
+                        toggle_repeat();
+                        toggle_repeat();
+                }
+                if (state->uiSettings.shuffle_enabled)
+                        toggle_shuffle();
+        }
+
+        if (playlist->head == NULL) {
+                state->currentView = LIBRARY_VIEW;
+        }
+
+        init_mpris();
+
+        if (state->uiSettings.chromaPreset >= 0) {
+                chroma_set_current_preset(state->uiSettings.chromaPreset);
+                state->uiSettings.visualizations_instead_of_cover = true;
+        }
+        ps->loadedNextSong = false;
+        if (start_playing)
+                ps->waitingForPlaylist = true;
+
+        audio_data.currentFileIndex = 0;
+        user_data->current_song_data = NULL;
+        user_data->songdataA = NULL;
+        user_data->songdataB = NULL;
+        user_data->songdataADeleted = true;
+        user_data->songdataBDeleted = true;
+
+        if (playlist->count != 0)
+                check_and_load_next_song();
+
+        create_loop();
+}
+
+/**
+ * @brief Initializes the locale settings for the application.
+ *
+ * This function sets up the locale settings and binds text domains for translations.
+ */
+void init_locale(void)
+{
+        setlocale(LC_ALL, "");
+        setlocale(LC_CTYPE, "");
+
+        bindtextdomain("kew", LOCALEDIR);
+        textdomain("kew");
+}
+
+/**
+ * @brief Initializes the application and sets up necessary states.
+ *
+ * This function sets the initial state of the application, initializes resources, and prepares
+ * the environment for playback. It handles various settings, file paths, and library initialization.
+ *
+ * @param set_library_enqueued_status Flag indicating whether to set the library's enqueued status.
+ */
+void kew_init(bool set_library_enqueued_status)
+{
+        AppState *state = get_app_state();
+
+        set_nonblocking_mode();
+
+        disable_terminal_line_input();
+        init_resize();
+        ioctl(STDOUT_FILENO, TIOCGWINSZ, &state->uiState.windowSize);
+        enable_scrolling();
+
+        init_input();
+
+        if (state->uiSettings.discordRPCEnabled)
+                discord_rpc_init();
+
+        // This is to not stop Chroma when we can't keep up with it, instead just return an error
+        signal(SIGPIPE, SIG_IGN);
+
+        PlaybackState *ps = get_playback_state();
+        UserData *user_data = audio_data.pUserData;
+        PlayList *playlist = get_playlist();
+        state->tmpCache = create_cache();
+
+        c_strcpy(ps->loadingdata.file_path, "", sizeof(ps->loadingdata.file_path));
+        ps->loadingdata.songdataA = NULL;
+        ps->loadingdata.songdataB = NULL;
+        ps->loadingdata.loadA = true;
+        ps->loadingdata.loadingFirstDecoder = true;
+        audio_data.restart = true;
+        user_data->songdataADeleted = true;
+        user_data->songdataBDeleted = true;
+        unsigned int seed = (unsigned int)time(NULL);
+
+        srand(seed);
+        pthread_mutex_init(&(ps->loadingdata.mutex), NULL);
+        pthread_mutex_init(&(playlist->mutex), NULL);
+        free_search_results();
+        reset_chosen_dir();
+        create_library(set_library_enqueued_status);
+        state->uiSettings.LAST_ROW = _(" [F2 Playlist|F3 Library|F4 Track|F5 Search|F6 Help]");
+        clear_screen();
+        fflush(stdout);
+
+        set_term_size();
+
+#ifdef DEBUG
+        // g_setenv("G_MESSAGES_DEBUG", "all", TRUE);
+        state->uiState.logFile = freopen("error.log", "w", stderr);
+        if (state->uiState.logFile == NULL) {
+                fprintf(stdout, "Failed to redirect stderr to error.log\n");
+        }
+#else
+        FILE *null_stream = freopen("/dev/null", "w", stderr);
+        (void)null_stream;
+#endif
+}
+
+/**
+ * @brief Initializes the default state for the application.
+ *
+ * This function initializes the default UI settings, playback state, and other system resources.
+ * It sets up the playlist, resets various flags, and prepares the system for playback.
+ */
+void init_default_state(void)
+{
+        bool set_library_enqueued_status = true;
+        kew_init(set_library_enqueued_status);
+
+        AppState *state = get_app_state();
+        FileSystemEntry *library = get_library();
+        PlayList *playlist = get_playlist();
+        PlaybackState *ps = get_playback_state();
+
+        add_enqueued_songs_to_playlist(library, playlist);
+
+        set_unshuffled_playlist(deep_copy_playlist(playlist));
+
+        reset_list_after_dequeuing_playing_song();
+
+        audio_data.restart = true;
+        audio_data.end_of_list_reached = true;
+        ps->loadedNextSong = false;
+
+        state->currentView = LIBRARY_VIEW;
+
+        run(false);
+}
+
+/**
+ * @brief Handles the "play" command from the playlist.
+ *
+ * This function validates paths and processes the playlist for playback. It checks if the
+ * provided paths exist and are valid, then initiates the playback with the playlist.
+ *
+ * @param argc Pointer to the argument count.
+ * @param argv Array of argument strings.
+ *
+ * @return bool Returns true if the command is valid, false otherwise.
+ */
+static bool handle_play_command_playlist(int *argc, char **argv)
+{
+        char de_expanded[PATH_MAX];
+        // Working with multiple files
+        //validate all paths
+
+        for (int i = 2; i < *argc; i++) {
+                if ((expand_path(argv[i], de_expanded) != 0) || (exists_file(de_expanded) == -1)) {
+                        return false;
+                }
+        }
+        play_command_with_playlist(argc, argv);
+
+        return true;
+}
+
+/**
+ * @brief Initializes the state for the application.
+ *
+ * This function sets the application state, initializes variables, and prepares the system for
+ * running. It sets up playback, UI settings, and various other application states.
+ */
 void init_state(void)
 {
         AppState *state = get_app_state();
@@ -562,10 +681,13 @@ void init_state(void)
         state->uiSettings.coverEnabled = true;
         state->uiSettings.hideLogo = false;
         state->uiSettings.hideHelp = false;
+        state->uiSettings.hideFooter = false;
+        state->uiSettings.hideTimeStatus = true;
         state->uiSettings.quitAfterStopping = false;
         state->uiSettings.hideGlimmeringText = false;
         state->uiSettings.coverAnsi = false;
         state->uiSettings.visualizerEnabled = true;
+        state->uiSettings.discordRPCEnabled = true;
         state->uiSettings.visualizer_height = 5;
         state->uiSettings.visualizer_color_type = 0;
         state->uiSettings.visualizerBrailleMode = false;
@@ -652,6 +774,14 @@ void init_state(void)
         state_ptr = state;
 }
 
+/**
+ * @brief Restores the terminal state when a signal is received.
+ *
+ * This function handles restoring the terminal state, such as showing the cursor, leaving
+ * the alternate screen buffer, and disabling mouse input when a signal is received (e.g., SIGINT).
+ *
+ * @param sig The signal number.
+ */
 void force_terminal_restore(int sig)
 {
         ssize_t res;
@@ -675,6 +805,17 @@ void force_terminal_restore(int sig)
         raise(sig);
 }
 
+/**
+ * @brief Main entry point of the application.
+ *
+ * This function processes command-line arguments, initializes the application, and runs the main event loop.
+ * It handles various cases for displaying help, version, and running the application based on user input.
+ *
+ * @param argc The number of command-line arguments.
+ * @param argv The array of command-line argument strings.
+ *
+ * @return int The exit status of the program.
+ */
 int main(int argc, char *argv[])
 {
         AppState *state = get_app_state();
@@ -718,7 +859,6 @@ int main(int argc, char *argv[])
 
         enable_mouse(&(state->uiSettings));
         enter_alternate_screen_buffer();
-        atexit(kew_shutdown);
 
         signal(SIGINT, force_terminal_restore);
         signal(SIGSEGV, force_terminal_restore);
@@ -762,7 +902,7 @@ int main(int argc, char *argv[])
                 if (playlist->count == 0) {
                         if (argc > 1 && argv[1] && strcmp(argv[1], "theme") != 0)
                                 state->uiState.noPlaylist = true;
-                        exit(0);
+                        kew_shutdown();
                 }
 
                 FileSystemEntry *library = get_library();

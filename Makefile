@@ -16,12 +16,30 @@ ARCH := $(shell uname -m)
 # Set kew version
 KEW_VERSION ?= $(shell git describe --tags --dirty --always)
 
+  # Check if we're in Termux environment
+ifneq ($(wildcard /data/data/com.termux/files/usr),)
+  # Termux environment
+  COMMONFLAGS += -D__ANDROID__
+  IS_ANDROID := 1
+endif
+
 # Default USE_DBUS to auto-detect if not set by user
 ifeq ($(origin USE_DBUS), undefined)
   ifeq ($(UNAME_S), Darwin)
     USE_DBUS = 0
+  else ifeq ($(IS_ANDROID),1)
+    USE_DBUS = 0
   else
     USE_DBUS = 1
+  endif
+endif
+
+# Default USE_MACOS_MEDIA to auto-detect if not set by user
+ifeq ($(origin USE_MACOS_MEDIA), undefined)
+  ifeq ($(UNAME_S), Darwin)
+    USE_MACOS_MEDIA = 1
+  else
+    USE_MACOS_MEDIA = 0
   endif
 endif
 
@@ -100,12 +118,6 @@ COMMONFLAGS += -DMA_NO_AAUDIO
 COMMONFLAGS += -fstack-protector-strong -Wformat -Wno-format-security -fPIE -D_FORTIFY_SOURCE=2
 COMMONFLAGS += -Wall -Wextra -Wpointer-arith
 
-  # Check if we're in Termux environment
-ifneq ($(wildcard /data/data/com.termux/files/usr),)
-  # Termux environment
-  COMMONFLAGS += -D__ANDROID__
-endif
-
 CFLAGS = $(COMMONFLAGS)
 
 # Compiler flags for C++ code
@@ -130,11 +142,19 @@ ifeq ($(UNAME_S), Linux)
   endif
 else ifeq ($(UNAME_S), Darwin)
   LIBS += -framework CoreAudio -framework CoreFoundation
+  ifeq ($(USE_MACOS_MEDIA), 1)
+    LIBS += -framework MediaPlayer -framework AppKit
+  endif
 endif
 
 # Conditionally add  USE_DBUS is enabled
 ifeq ($(USE_DBUS), 1)
   DEFINES += -DUSE_DBUS
+endif
+
+# Conditionally add macOS media integration
+ifeq ($(USE_MACOS_MEDIA), 1)
+  DEFINES += -DUSE_MACOS_MEDIA
 endif
 
 DEFINES += -DPREFIX=\"$(PREFIX)\"
@@ -170,7 +190,7 @@ SRCS = src/common/appstate.c src/ui/common_ui.c src/common/common.c \
        src/utils/utils.c src/utils/file.c src/utils/cache.c src/utils/term.c \
        src/sound/sound.c src/sound/m4a.c src/sound/sound_builtin.c src/sound/audiobuffer.c \
        src/sound/decoders.c src/sound/audio_file_info.c src/sound/playback.c src/sound/volume.c \
-       src/sys/sys_integration.c src/sys/notifications.c src/sys/mpris.c \
+       src/sys/sys_integration.c src/sys/notifications.c src/sys/mpris.c src/sys/discord_rpc.c \
        src/ops/playback_ops.c src/ops/playback_clock.c src/ops/playback_system.c \
        src/ops/playlist_ops.c src/ops/library_ops.c src/ops/track_manager.c src/ops/playback_state.c \
        src/ui/control_ui.c  src/ui/input.c src/ui/playlist_ui.c  src/ui/search_ui.c  src/ui/player_ui.c \
@@ -199,8 +219,14 @@ OBJS_C = $(SRCS:src/%.c=$(OBJDIR)/%.o)
 NESTEGG_SRCS = include/nestegg/nestegg.c
 NESTEGG_OBJS = $(NESTEGG_SRCS:include/nestegg/%.c=$(OBJDIR)/nestegg/%.o)
 
+# macOS Now Playing (Objective-C)
+ifeq ($(USE_MACOS_MEDIA), 1)
+  MACOS_MEDIA_SRC = src/sys/macos_nowplaying.m
+  MACOS_MEDIA_OBJ = $(MACOS_MEDIA_SRC:src/sys/%.m=$(OBJDIR)/sys/%.o)
+endif
+
 # All objects together
-OBJS = $(OBJS_C) $(NESTEGG_OBJS)
+OBJS = $(OBJS_C) $(NESTEGG_OBJS) $(MACOS_MEDIA_OBJ)
 
 # Create object directories
 $(OBJDIR):
@@ -210,6 +236,11 @@ $(OBJDIR):
 $(OBJDIR)/%.o: src/%.c Makefile | $(OBJDIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(DEFINES) -c -o $@ $<
+
+# Compile Objective-C sources in src/ (macOS only)
+$(OBJDIR)/%.o: src/%.m Makefile | $(OBJDIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(DEFINES) -fobjc-arc -c -o $@ $<
 
 # Compile explicit C++ sources in src/
 $(OBJDIR)/%.o: src/%.cpp Makefile | $(OBJDIR)
