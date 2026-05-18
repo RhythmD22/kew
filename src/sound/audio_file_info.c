@@ -1,7 +1,16 @@
+/**
+ * @file audio_file_info.c
+ * @brief File info getters.
+ *
+ * Get audio file info.
+ */
+
 #include "audio_file_info.h"
+
 #ifdef USE_FAAD
 #include "m4a.h"
 #endif
+
 #include "miniaudio_libopus.h"
 #include "miniaudio_libvorbis.h"
 #include "webm.h"
@@ -15,8 +24,6 @@ void get_file_info(const char *filename, ma_uint32 *sample_rate,
                 *channels = tmp.outputChannels;
                 *format = tmp.outputFormat;
                 ma_decoder_uninit(&tmp);
-        } else {
-                // Handle file open error.
         }
 }
 
@@ -91,7 +98,6 @@ void get_m4a_file_info(
         int unusedBitRate;
         k_m4adec_filetype unusedFileType;
 
-        // We just discard these values here
         get_m4a_file_info_full(filename, format, channels, sample_rate, channel_map,
                                &unusedBitRate, &unusedFileType);
 }

@@ -1,6 +1,8 @@
 CC ?= gcc
 CXX ?= g++
 PKG_CONFIG ?= pkg-config
+SYMBOLS ?= 0
+STRIP ?= 0
 
 # To enable debugging, run:
 # make DEBUG=1
@@ -19,8 +21,13 @@ KEW_VERSION ?= $(shell git describe --tags --dirty --always)
   # Check if we're in Termux environment
 ifneq ($(wildcard /data/data/com.termux/files/usr),)
   # Termux environment
-  COMMONFLAGS += -D__ANDROID__
   IS_ANDROID := 1
+endif
+
+ifeq ($(SYMBOLS),1)
+    SYMBOL_FLAGS := -g
+else
+    SYMBOL_FLAGS :=
 endif
 
 # Default USE_DBUS to auto-detect if not set by user
@@ -105,18 +112,33 @@ PKG_LDFLAGS = $(shell $(PKG_CONFIG) --libs $(PKG_LIBS))
 COMMONFLAGS = $(LOCAL_INC) $(PKG_CFLAGS)
 
 ifeq ($(DEBUG), 1)
-COMMONFLAGS += -g -DDEBUG
+    SYMBOL_FLAGS := -g
+    COMMONFLAGS += $(SYMBOL_FLAGS) -DDEBUG
+else ifeq ($(DEBUG), 2)
+    SYMBOL_FLAGS := -g
+    COMMONFLAGS += $(SYMBOL_FLAGS) -DDEBUG -fsanitize=address,undefined \
+          -fno-omit-frame-pointer \
+          -fno-optimize-sibling-calls
+    LDFLAGS += -fsanitize=address,undefined
 else
-COMMONFLAGS += -O2
+    COMMONFLAGS += $(SYMBOL_FLAGS) -O2 -fstack-protector-strong -Wformat -ffunction-sections -fdata-sections -Werror=format-security -D_FORTIFY_SOURCE=2
 endif
 
 ifneq ($(strip $(KEW_VERSION)),)
-  COMMONFLAGS += -DKEW_VERSION=\"$(KEW_VERSION)\"
+    COMMONFLAGS += -DKEW_VERSION=\"$(KEW_VERSION)\"
 endif
 
 COMMONFLAGS += -DMA_NO_AAUDIO
-COMMONFLAGS += -fstack-protector-strong -Wformat -Wno-format-security -fPIE -D_FORTIFY_SOURCE=2
 COMMONFLAGS += -Wall -Wextra -Wpointer-arith
+
+GC_SECTIONS_FLAG :=
+
+# Test linking a dummy program with --gc-sections
+ifeq ($(shell echo "int main(){}" | $(CC) -x c - -o /dev/null -Wl,--gc-sections >/dev/null 2>&1 && echo yes),yes)
+    GC_SECTIONS_FLAG := -Wl,--gc-sections
+endif
+
+LDFLAGS += $(GC_SECTIONS_FLAG)
 
 CFLAGS = $(COMMONFLAGS)
 
@@ -127,18 +149,18 @@ CXXFLAGS = $(COMMONFLAGS) -std=c++11
 LIBS = -lm -lopusfile -lglib-2.0 -lpthread $(PKG_LDFLAGS)
 LIBS += -lstdc++
 
-LDFLAGS = -logg -lz
+LDFLAGS += -logg -lz
 
 ifeq ($(UNAME_S), Linux)
   CFLAGS += -fPIE -fstack-clash-protection
   CXXFLAGS += -fPIE -fstack-clash-protection
-  LDFLAGS += -pie -Wl,-z,relro
+  LDFLAGS += -pie -Wl,-z,relro -Wl,-z,now -fPIE
   ifneq (,$(filter $(ARCH), x86_64 i386))
         CFLAGS += -fcf-protection
         CXXFLAGS += -fcf-protection
   endif
-  ifneq ($(DEBUG), 1)
-  LDFLAGS += -s
+  ifeq ($(STRIP),1)
+        LDFLAGS += -s
   endif
 else ifeq ($(UNAME_S), Darwin)
   LIBS += -framework CoreAudio -framework CoreFoundation
@@ -187,19 +209,19 @@ endif
 OBJDIR = src/obj
 
 SRCS = src/common/appstate.c src/ui/common_ui.c src/common/common.c \
-       src/utils/utils.c src/utils/file.c src/utils/cache.c src/utils/term.c \
-       src/sound/sound.c src/sound/m4a.c src/sound/sound_builtin.c src/sound/audiobuffer.c \
+       src/utils/utils.c src/utils/file.c src/utils/img_utils.c src/utils/term.c \
+       src/sound/sound_facade.c src/sound/sound.c src/sound/m4a.c src/sound/audiobuffer.c \
        src/sound/decoders.c src/sound/audio_file_info.c src/sound/playback.c src/sound/volume.c \
        src/sys/sys_integration.c src/sys/notifications.c src/sys/mpris.c src/sys/discord_rpc.c \
        src/ops/playback_ops.c src/ops/playback_clock.c src/ops/playback_system.c \
        src/ops/playlist_ops.c src/ops/library_ops.c src/ops/track_manager.c src/ops/playback_state.c \
        src/ui/control_ui.c  src/ui/input.c src/ui/playlist_ui.c  src/ui/search_ui.c  src/ui/player_ui.c \
        src/ui/visuals.c src/ui/chroma.c src/ui/queue_ui.c src/ui/settings.c  src/ui/cli.c \
-       src/data/theme.c src/data/directorytree.c src/data/lyrics.c src/data/img_func.c src/data/song_loader.c  \
-       src/data/playlist.c  src/kew.c
+       src/data/theme.c src/data/directorytree.c src/loader/lyrics.c src/data/img_func.c   \
+       src/data/playlist.c src/data/cache.c src/loader/song_loader.c src/kew.c
 
 # TagLib wrapper
-WRAPPER_SRC = src/data/tagLibWrapper.cpp
+WRAPPER_SRC = src/loader/tagLibWrapper.cpp
 WRAPPER_OBJ = $(OBJDIR)/tagLibWrapper.o
 
 MAN_PAGE = kew.1
@@ -293,6 +315,12 @@ install: all
 				install -m 0644 "$$theme" $(DESTDIR)$(THEMEDIR)/; \
 			fi; \
 		done; \
+	fi
+
+	@if [ "$$(uname)" = "Linux" ]; then \
+		if command -v setcap >/dev/null 2>&1; then \
+			setcap cap_sys_nice+ep $(DESTDIR)$(PREFIX)/bin/kew; \
+		fi; \
 	fi
 
 .PHONY: uninstall

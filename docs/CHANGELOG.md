@@ -1,8 +1,42 @@
 # CHANGELOG
 
-## 4.0.0
+## 4.1.0
 
 #### Enhancements
+
+- Optionally show folder names (album names) in the playlist. By @hnatt. Suggested by @itsdeadguy.
+- Scrolling lyrics on lyrics page (press m) By @petoem. Suggested by @kewIT.
+
+#### Bugfixes
+
+There are no bugs. It's an illusion.
+
+
+## 4.0.0 LOVE IS GONNA SAVE US EDITION
+
+kew 4.0 brings ASCII visualizations and a redesigned audio module. There's also a discord integration, kew play \<path\> command, support for macOS media keys, AIFF support and more.
+
+kew now has an official Arch Linux package and will soon also be on Android (Termux).
+
+I want to take this opportunity to thank the package managers who showed up out of nowhere and were brave enough to support this project very, very early on, when it was just a piece of shit with some cool ideas. People like Matthias Geiger who maintains the packages for Debian, Ubuntu, Raspberry Pi, Kali and others. Agustin Ballesteros and Matteo Giordano for the two AUR packages. Yuri Victorovich for FreeBSD. Brett Carlock for Alpine Linux and all the others.
+
+Now we also have Robin Candau on Arch Linux helping us. Thank you to you all and thank you also to all the others that I haven't had much contact with but we are very thankful to you as well.
+
+Check out the Chroma Demo here: https://www.youtube.com/watch?v=Ql5ZKeaX2MQ. Benny Benassi is not affiliated with us.
+
+- Ravachol
+
+#### Enhancements
+
+- The audio subsystem has been reworked and improved structurally, which among other things should make the audio smooth when the computer is under heavy load.  Lots of functions were removed/unified, and some issues fixed. This should make the flow of the program easier to understand for other coders as well. Please help us by reporting any issues with audio.
+
+Everything to do with playing audio is now behind a facade: https://codeberg.org/ravachol/kew/src/branch/main/images/kew_architecture.png.
+
+These changes were made to reduce the occurence of stuttering:
+- kew now runs as a realtime scheduled app (SCHED_RR), but at a low priority.
+- miniaudio period size increased to 200ms and number of periods to 4.
+- much cleaner decode and audio callback logic with no locks.
+
 
 - Chroma ASCII Visualizations.
 
@@ -13,11 +47,13 @@ Chroma is started from within kew. Just switch to track view and press c to cycl
 
 Thank you @yuri-xyz for helping out with this.
 
-- Discord RPC integration. by @ravachol. Suggested by @Chmosha.
+- Discord RPC integration. by @ravachol and @chrontax. Suggested by @Chmosha.
 
 - kew play \<path\> \<path2\> command. by @Overionised. Suggested by @amigthea.
 
 - Support for macOS media keys. By @Rohyme and @petoem.
+
+- You can now dequeue m3u playlists and they are sorted first. By @feng1st.
 
 - Lyrics page now centers the current lyric once it reaches the center of the screen. Suggested by @flashfire1001. Implemented by @Moksh-Parikh.
 
@@ -34,6 +70,12 @@ Thank you @yuri-xyz for helping out with this.
 - Hide time status (elapsed seconds, song length and so on) option, hideTimeStatus=1. By @ravachol. Suggested By: Found a guy on reddit (u/haikuosextremist) who had this hidden in his kew.
 
 - Add option to disable the stripping of track numbers from file names in the library: stripTrackNumbers=0. By @episvr.
+
+- Add AIFF support. Suggested by @brikk42. By @ravachol.
+
+- ClearListClearsAll option, which makes backspace clear the whole playlist including the playing song. By @feng1st.
+
+- Non-square cover art is no longer stretched. Suggested by @that_owl. By @rudra-dhamecha.
 
 #### Bug Fixes
 
@@ -59,9 +101,17 @@ Thank you @yuri-xyz for helping out with this.
 
 - Improved and more efficient stripping of numbers on filenames. By @petoem.
 
+- Fixed segfault sometimes when pressing u for update. Found by @petoem. By @petoem.
+
+- Fix timestamp calculation in embedded lyrics. Found by @LeahTheSlug. By @ravachol.
+
+- Fix playlist not loading in correct order on startup. By @ravachol
+
+- Fix chinese lyrics characters not printed correctly. Found by @2863189117. By @ravachol.
+
 #### Special Thanks
 
-Special thanks to @petoem who has been very active. Also @LeahTheSlug and @Overionised.
+Special thanks to @LeahTheSlug and @petoem who have helped a great deal, and are now advisor and technical advisor respectively.
 
 ## 3.7.3
 
@@ -605,6 +655,10 @@ Now with internet radio, mouse support and ability to move songs around in the p
 - Uses a different method for detecting if kew is already running since the previous method didn't work on macOS. By @DNEGEL3125.
 
 - Prevent the cover from scrolling up on tmux+konsole. Found by @acdcbyl. By @ravachol.
+
+- Fix cursor sometimes not being in the right place when switching m4a files. Found by @LeahTheSlug. By @ravachol. Thanks to @rudra-dhamecha for help.
+
+- Fix holding enter on track view causes skipping. Found by @LeahTheSlug. By @ravachol.
 
 #### Special Thanks To These Sponsors:
 

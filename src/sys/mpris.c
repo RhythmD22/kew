@@ -20,7 +20,6 @@
 #include "ops/playlist_ops.h"
 
 #include "sound/playback.h"
-#include "sound/volume.h"
 
 #ifdef USE_MACOS_MEDIA
 #include "macos_nowplaying.h"
@@ -615,7 +614,7 @@ static gboolean get_volume_mpris(GDBusConnection *connection, const gchar *sende
         (void)error;
         (void)user_data;
 
-        volume = (gdouble)get_current_volume();
+        volume = (gdouble)get_volume();
 
         if (volume >= 1)
                 volume = volume / 100;
@@ -996,21 +995,19 @@ void emit_playback_stopped_mpris()
 void cleanup_mpris(void)
 {
 #ifdef USE_DBUS
-        if (registration_id > 0) {
-                g_dbus_connection_unregister_object(get_gd_bus_connection(),
-                                                    registration_id);
-                registration_id = -1;
+        if (registration_id != 0) {
+                g_dbus_connection_unregister_object(get_gd_bus_connection(), registration_id);
+                registration_id = 0;
         }
 
-        if (player_registration_id > 0) {
-                g_dbus_connection_unregister_object(get_gd_bus_connection(),
-                                                    player_registration_id);
-                player_registration_id = -1;
+        if (player_registration_id != 0) {
+                g_dbus_connection_unregister_object(get_gd_bus_connection(), player_registration_id);
+                player_registration_id = 0;
         }
 
-        if (bus_name_id > 0) {
+        if (bus_name_id != 0) {
                 g_bus_unown_name(bus_name_id);
-                bus_name_id = -1;
+                bus_name_id = 0;
         }
 
         if (get_gd_bus_connection() != NULL) {
@@ -1164,7 +1161,7 @@ void emit_properties_changed(GDBusConnection *connection,
 void emit_volume_changed(void)
 {
 #ifdef USE_DBUS
-        gdouble newVolume = (gdouble)get_current_volume() / 100;
+        gdouble newVolume = (gdouble)get_volume() / 100;
 
         if (newVolume > 1.0)
                 return;
@@ -1323,7 +1320,6 @@ void emit_metadata_changed(const gchar *title, const gchar *artist,
         (void)current_song;
         macos_set_now_playing_info(title, artist, album, cover_art_path,
                                    (double)length / G_USEC_PER_SEC);
-        macos_set_playback_state_playing();
 #else
         (void)title;
         (void)artist;

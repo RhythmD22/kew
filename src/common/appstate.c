@@ -13,7 +13,7 @@ FileSystemEntry *library = NULL;
 
 PlaybackState playback_state;
 
-AudioData audio_data;
+sound_system_t *sound_sys = NULL;
 
 AppSettings settings;
 
@@ -27,6 +27,8 @@ PlayList *unshuffled_playlist = NULL;
 PlayList *favorites_playlist = NULL;
 
 static const char LIBRARY_FILE[] = "library.dat";
+
+static char library_real_path_if_diff[PATH_MAX] = {0};
 
 double pause_seconds = 0.0;
 
@@ -79,11 +81,6 @@ void create_playlist(PlayList **playlist)
 }
 
 // --- Getters ---
-
-AudioData *get_audio_data(void)
-{
-        return &audio_data;
-}
 
 AppState *get_app_state()
 {
@@ -157,12 +154,6 @@ PlayList *get_favorites_playlist(void)
 
 // --- Setters ---
 
-void set_audio_data(AudioData *ad)
-{
-        if (ad)
-                audio_data = *ad;
-}
-
 void set_library(FileSystemEntry *root)
 {
         library = root;
@@ -219,4 +210,18 @@ void set_song_to_start_from(Node *node)
 void set_try_next_song(Node *node)
 {
         try_next_song = node;
+}
+
+const char *get_library_real_path_if_diff(void)
+{
+        return library_real_path_if_diff;
+}
+
+void set_library_real_path_if_diff(const char *path)
+{
+        if (path == NULL) {
+                library_real_path_if_diff[0] = '\0';
+                return;
+        }
+        c_strcpy(library_real_path_if_diff, path, sizeof(library_real_path_if_diff));
 }

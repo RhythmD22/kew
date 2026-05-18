@@ -19,8 +19,6 @@
 
 #include "ops/playback_state.h"
 
-#include "sound/volume.h"
-
 #include "utils/file.h"
 #include "utils/utils.h"
 
@@ -83,6 +81,7 @@ TBKeyBinding key_bindings[MAX_KEY_BINDINGS] = {
     {0, 'a', 0, EVENT_SEEKBACK, ""},
     {0, 'd', 0, EVENT_SEEKFORWARD, ""},
     {0, 'o', 0, EVENT_SORTLIBRARY, ""},
+    {0, '_', 0, EVENT_TOGGLEFOLDERDISPLAY, ""},
     {0, 'm', 0, EVENT_SHOWLYRICSPAGE, ""},
     {0, 's', TB_MOD_SHIFT, EVENT_STOP, ""},
 
@@ -378,7 +377,6 @@ TBKeyBinding *get_key_bindings()
 AppSettings init_settings(void)
 {
         AppState *state = get_app_state();
-        UserData *user_data = audio_data.pUserData;
 
         AppSettings settings;
 
@@ -387,8 +385,6 @@ AppSettings init_settings(void)
         get_config(&settings, &(state->uiSettings));
         get_prefs(&settings, &(state->uiSettings));
 
-        user_data->replayGainCheckFirst =
-            state->uiSettings.replayGainCheckFirst;
 
         return settings;
 }
@@ -470,6 +466,7 @@ static const EventMap event_map[] = {
     {"cycleThemes", EVENT_CYCLETHEMES},
     {"toggleNotifications", EVENT_TOGGLENOTIFICATIONS},
     {"showLyricsPage", EVENT_SHOWLYRICSPAGE},
+    {"toggleFolderDisplay", EVENT_TOGGLEFOLDERDISPLAY},
     {NULL, EVENT_NONE} // Sentinel
 };
 
@@ -590,6 +587,8 @@ void set_default_config(AppSettings *settings)
         c_strcpy(settings->coverAnsi, "0", sizeof(settings->coverAnsi));
         c_strcpy(settings->quitAfterStopping, "0",
                  sizeof(settings->quitAfterStopping));
+        c_strcpy(settings->clearListClearsAll, "1",
+                 sizeof(settings->clearListClearsAll));
         c_strcpy(settings->hideGlimmeringText, "0",
                  sizeof(settings->hideGlimmeringText));
         c_strcpy(settings->mouseEnabled, "1", sizeof(settings->mouseEnabled));
@@ -688,6 +687,7 @@ void remove_printable_key_binding(char *value)
                 }
         }
 }
+
 
 void remove_special_key_binding(uint16_t value)
 {
@@ -892,6 +892,12 @@ void construct_app_settings(AppSettings *settings, KeyValuePair *pairs, int coun
                 } else if (strcmp(lowercase_key, "chromapreset") == 0) {
                         snprintf(settings->chromaPreset, sizeof(settings->chromaPreset), "%s",
                                  pair->value);
+                } else if (strcmp(lowercase_key, "chromapath") == 0) {
+                        snprintf(settings->chromaPath, sizeof(settings->chromaPath), "%s",
+                                         pair->value);
+                } else if (strcmp(lowercase_key, "chromadevice") == 0) {
+                        snprintf(settings->chromaDevice, sizeof(settings->chromaDevice), "%s",
+                                         pair->value);
                 } else if (strcmp(lowercase_key, "coverenabled") == 0) {
                         snprintf(settings->coverEnabled,
                                  sizeof(settings->coverEnabled), "%s",
@@ -1066,6 +1072,10 @@ void construct_app_settings(AppSettings *settings, KeyValuePair *pairs, int coun
                         snprintf(settings->repeatState,
                                  sizeof(settings->repeatState), "%s",
                                  pair->value);
+                } else if (strcmp(lowercase_key, "showfoldersinplaylist") == 0) {
+                        snprintf(settings->showFoldersInPlaylist,
+                                 sizeof(settings->showFoldersInPlaylist), "%s",
+                                 pair->value);
                 } else if (strcmp(lowercase_key, "shuffleenabled") == 0) {
                         snprintf(settings->shuffle_enabled,
                                  sizeof(settings->shuffle_enabled), "%s",
@@ -1140,6 +1150,10 @@ void construct_app_settings(AppSettings *settings, KeyValuePair *pairs, int coun
                 } else if (strcmp(lowercase_key, "quitonstop") == 0) {
                         snprintf(settings->quitAfterStopping,
                                  sizeof(settings->quitAfterStopping), "%s",
+                                 pair->value);
+                } else if (strcmp(lowercase_key, "clearlistclearsall") == 0) {
+                        snprintf(settings->clearListClearsAll,
+                                 sizeof(settings->clearListClearsAll), "%s",
                                  pair->value);
                 } else if (strcmp(lowercase_key, "hideglimmeringtext") == 0) {
                         snprintf(settings->hideGlimmeringText,
@@ -1592,7 +1606,7 @@ void get_prefs(AppSettings *settings, UISettings *ui)
 
         int tmp = get_number(settings->repeatState);
         if (tmp >= 0)
-                ui->repeatState = tmp;
+                set_repeat_state(tmp);
 
         if (settings->chromaPreset[0] != '\0') {
                 tmp = get_number(settings->chromaPreset);
@@ -1636,6 +1650,8 @@ void get_config(AppSettings *settings, UISettings *ui)
         FILE *file = fopen(filepath, "r");
         if (file == NULL) {
                 set_config(settings, ui);
+        } else {
+                fclose(file);
         }
 
         KeyValuePair *pairs =
@@ -1698,12 +1714,18 @@ void set_prefs(AppSettings *settings, UISettings *ui)
                                                sizeof(settings->shuffle_enabled));
         }
 
+        ui->showFoldersInPlaylist
+            ? c_strcpy(settings->showFoldersInPlaylist, "1",
+                        sizeof(settings->showFoldersInPlaylist))
+            : c_strcpy(settings->showFoldersInPlaylist, "0",
+                        sizeof(settings->showFoldersInPlaylist));
+
         if (settings->visualizer_color_type[0] == '\0')
                 snprintf(settings->visualizer_color_type,
                          sizeof(settings->visualizer_color_type), "%d",
                          ui->visualizer_color_type);
 
-        int current_volume = get_current_volume();
+        int current_volume = get_volume();
         current_volume = (current_volume <= 0) ? 10 : current_volume;
         snprintf(settings->lastVolume, sizeof(settings->lastVolume), "%d",
                  current_volume);
@@ -1716,6 +1738,7 @@ void set_prefs(AppSettings *settings, UISettings *ui)
                 fprintf(file, "shuffleEnabled=%s\n\n", settings->shuffle_enabled);
         }
 
+        fprintf(file, "showFoldersInPlaylist=%s\n\n", settings->showFoldersInPlaylist);
         fprintf(file, "lastVolume=%s\n\n", settings->lastVolume);
         fprintf(file, "[track cover]\n\n");
         fprintf(file, "coverAnsi=%s\n\n", settings->coverAnsi);
@@ -1727,6 +1750,7 @@ void set_prefs(AppSettings *settings, UISettings *ui)
         fprintf(file, "colorMode=%d\n\n", ui->colorMode);
         fprintf(file, "theme=%s\n\n", ui->theme_name);
 
+        fclose(file);
         free(configdir);
         free(filepath);
 }
@@ -1839,6 +1863,12 @@ void set_config(AppSettings *settings, UISettings *ui)
                                sizeof(settings->quitAfterStopping))
                     : c_strcpy(settings->quitAfterStopping, "0",
                                sizeof(settings->quitAfterStopping));
+        if (settings->clearListClearsAll[0] == '\0')
+                ui->clearListClearsAll
+                    ? c_strcpy(settings->clearListClearsAll, "1",
+                               sizeof(settings->clearListClearsAll))
+                    : c_strcpy(settings->clearListClearsAll, "0",
+                               sizeof(settings->clearListClearsAll));
         if (settings->hideGlimmeringText[0] == '\0')
                 ui->hideGlimmeringText
                     ? c_strcpy(settings->hideGlimmeringText, "1",
@@ -1864,6 +1894,12 @@ void set_config(AppSettings *settings, UISettings *ui)
                                        sizeof(settings->shuffle_enabled))
                             : c_strcpy(settings->shuffle_enabled, "0",
                                        sizeof(settings->shuffle_enabled));
+
+        ui->showFoldersInPlaylist
+            ? c_strcpy(settings->showFoldersInPlaylist, "1",
+                        sizeof(settings->showFoldersInPlaylist))
+            : c_strcpy(settings->showFoldersInPlaylist, "0",
+                        sizeof(settings->showFoldersInPlaylist));
 
         if (settings->visualizer_bar_width[0] == '\0')
                 snprintf(settings->visualizer_bar_width,
@@ -1932,6 +1968,10 @@ void set_config(AppSettings *settings, UISettings *ui)
                       "whole playlist.\n");
         fprintf(file, "quitOnStop=%s\n\n", settings->quitAfterStopping);
 
+        fprintf(file, "# Whether clearing the playlist also removes the "
+                      "currently playing song.\n");
+        fprintf(file, "clearListClearsAll=%s\n\n", settings->clearListClearsAll);
+
         fprintf(file, "# Glimmering text on the bottom row.\n");
         fprintf(file, "hideGlimmeringText=%s\n\n",
                 settings->hideGlimmeringText);
@@ -1947,6 +1987,7 @@ void set_config(AppSettings *settings, UISettings *ui)
 
         fprintf(file, "repeatState=%s\n\n", settings->repeatState);
         fprintf(file, "shuffleEnabled=%s\n\n", settings->shuffle_enabled);
+        fprintf(file, "showFoldersInPlaylist=%s\n\n", settings->showFoldersInPlaylist);
 
         fprintf(file, "# Set the window title to the title of the currently "
                       "playing track\n");
@@ -1979,6 +2020,10 @@ void set_config(AppSettings *settings, UISettings *ui)
 
         fprintf(file, "\n[discord]\n\n");
         fprintf(file, "discordRPCEnabled=%s\n\n”", settings->discordRPCEnabled);
+
+         fprintf(file, "\n[chroma]\n\n");
+        fprintf(file, "chromaPath=%s\n", settings->chromaPath);
+        fprintf(file, "chromaDevice=%s\n\n", settings->chromaDevice);
 
         fprintf(file, "\n[visualizer]\n\n");
         fprintf(file, "visualizerEnabled=%s\n", settings->visualizerEnabled);

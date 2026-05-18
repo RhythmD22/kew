@@ -47,6 +47,7 @@
 
 const int COOLDOWN_MS = 500;
 const int COOLDOWN2_MS = 100;
+const int COOLDOWNDIGITS_MS = 1500;
 const int MOUSE_DRAG = 32;
 const int MOUSE_CLICK = 0;
 const int max_digits_pressed_count = 9;
@@ -66,7 +67,35 @@ struct Event map_tb_key_to_event(struct tb_event *ev)
 
         TBKeyBinding *key_bindings = get_key_bindings();
 
+        for (size_t i = 0; i < keybinding_count; i++) {
+                TBKeyBinding *b = &key_bindings[i];
+
+                if (isupper((unsigned char)ev->ch)) {
+                        ev->mod |= TB_MOD_SHIFT;
+                        ev->ch = tolower(ev->ch);
+                }
+
+                bool keyMatch = (b->key && ev->key == b->key) || (b->ch && ev->ch == b->ch);
+                bool modsMatch = (b->mods == ev->mod);
+
+                if (keyMatch && modsMatch) {
+                        event.type = b->eventType;
+                        strncpy(event.args, b->args, sizeof(event.args));
+                        event.args[sizeof(event.args) - 1] = '\0';
+                        break;
+                }
+        }
+
+        return event;
+}
+
+struct Event handle_search_event(struct tb_event *ev)
+{
+        struct Event event = {0};
+        event.type = EVENT_NONE;
+
         AppState *state = get_app_state();
+
         if (state->currentView == SEARCH_VIEW) {
 
                 if (ev->key == TB_KEY_SPACE && ev->mod == 0)
@@ -103,27 +132,6 @@ struct Event map_tb_key_to_event(struct tb_event *ev)
                         event.type = EVENT_SEARCH;
                 }
 #endif
-        }
-
-        if (event.type == EVENT_NONE) {
-                for (size_t i = 0; i < keybinding_count; i++) {
-                        TBKeyBinding *b = &key_bindings[i];
-
-                        if (isupper((unsigned char)ev->ch)) {
-                                ev->mod |= TB_MOD_SHIFT;
-                                ev->ch = tolower(ev->ch);
-                        }
-
-                        bool keyMatch = (b->key && ev->key == b->key) || (b->ch && ev->ch == b->ch);
-                        bool modsMatch = (b->mods == ev->mod);
-
-                        if (keyMatch && modsMatch) {
-                                event.type = b->eventType;
-                                strncpy(event.args, b->args, sizeof(event.args));
-                                event.args[sizeof(event.args) - 1] = '\0';
-                                break;
-                        }
-                }
         }
 
         return event;
@@ -296,6 +304,7 @@ void handle_event(struct Event *event)
                 break;
         case EVENT_UPDATELIBRARY:
                 free_search_results();
+                reset_chosen_dir();
                 set_error_message("Updating Library...");
                 bool wait_until_complete = false;
                 update_library(settings->path, wait_until_complete);
@@ -350,6 +359,9 @@ void handle_event(struct Event *event)
         case EVENT_SORTLIBRARY:
                 sort_library();
                 break;
+        case EVENT_TOGGLEFOLDERDISPLAY:
+                toggle_folder_display();
+                break;
 
         default:
                 state->uiState.isFastForwarding = false;
@@ -396,6 +408,14 @@ static gboolean should_throttle(struct Event *event)
         case EVENT_PREVPAGE:
                 delta = now - last_page_event_time;
                 if (delta < 20 * 1000)
+                        return TRUE;
+                last_page_event_time = now;
+                break;
+
+        case EVENT_ENQUEUE:
+        case EVENT_ENQUEUEANDPLAY:
+                delta = now - last_page_event_time;
+                if (delta < 100 * 1000)
                         return TRUE;
                 last_page_event_time = now;
                 break;
@@ -528,6 +548,9 @@ bool handle_mouse_event(struct tb_event *ev, struct Event *event)
 
                         gint64 newPosUs = (gint64)(dragged_position_seconds * G_USEC_PER_SEC);
                         set_position(newPosUs, get_current_song_duration());
+
+                        event->type = EVENT_SEEK;
+
                         return true;
                 }
         }
@@ -538,9 +561,23 @@ bool handle_mouse_event(struct tb_event *ev, struct Event *event)
 void handle_cooldown(void)
 {
         bool cooldownElapsed = false;
+        bool cooldownDigitsElapsed = false;
 
         if (is_cooldown_elapsed(COOLDOWN_MS))
                 cooldownElapsed = true;
+
+        if (is_cooldown_elapsed(COOLDOWNDIGITS_MS))
+                cooldownDigitsElapsed = true;
+
+        if (digits_pressed_count > 0 && cooldownDigitsElapsed) {
+                struct Event event;
+                event.type = EVENT_NONE;
+                event.args[0] = '\0';
+                event.key[0] = '\0';
+                event.type = EVENT_ENQUEUEANDPLAY;
+                handle_event(&event);
+                reset_digits_pressed();
+        }
 
         if (cooldownElapsed) {
                 if (!dragging_progress_bar) {
@@ -602,60 +639,103 @@ static gboolean on_tb_input(GIOChannel *source, GIOCondition cond, gpointer data
                         bytebuf_nputs(&global.in, seq, seq_length); // feed entire sequence at once
                 }
 
+                struct tb_event last_ev;
+                memset(&last_ev, 0, sizeof(last_ev));
+                bool found_event = false;
+
                 struct Event event;
                 event.type = EVENT_NONE;
                 event.args[0] = '\0';
                 event.key[0] = '\0';
 
-                // Extract all events in the buffer
-                while (tb_peek_event(&ev, 0) == 0) {
-                        bool isMouseEvent = handle_mouse_event(&ev, &event);
+                AppState *state = get_app_state();
+                if (state->currentView == SEARCH_VIEW) {
+                        // Process all characters in the buffer (e.g. IME commits
+                        // multiple characters at once)
+                        while (tb_peek_event(&ev, 0) == 0) {
+                                bool isMouseEvent = handle_mouse_event(&ev, &event);
+                                if (!isMouseEvent) {
+                                        event = handle_search_event(&ev);
+                                        if (event.type == EVENT_NONE)
+                                                event = map_tb_key_to_event(&ev);
+                                }
+                        }
+                } else {
 
+                        // Extract all events in the buffer
+                        while (tb_peek_event(&ev, 0) == 0) {
+                                bool isMouseEvent = handle_mouse_event(&ev, &event);
+                                if (isMouseEvent || map_tb_key_to_event(&ev).type != EVENT_NONE) {
+                                        last_ev = ev;
+                                        found_event = true;
+                                }
+
+                                if (event.type == EVENT_SEEK)
+                                {
+                                        return TRUE;
+                                }
+                        }
+
+                        if (!found_event)
+                                return TRUE;
+
+                        // Process only the last event
+                        bool isMouseEvent = handle_mouse_event(&last_ev, &event);
                         if (!isMouseEvent) {
-                                event = map_tb_key_to_event(&ev);
+
+                                event = map_tb_key_to_event(&last_ev);
+                        }
+                }
+
+                if (isdigit(ev.ch) && event.type == EVENT_NONE) {
+
+                        if (digits_pressed_count == 0) {
+                                update_last_input_time();
                         }
 
-                        if (isdigit(ev.ch) && event.type == EVENT_NONE) {
-                                if (digits_pressed_count < max_digits_pressed_count)
-                                        digits_pressed[digits_pressed_count++] = ev.ch;
+                        if (digits_pressed_count < max_digits_pressed_count)
+                                digits_pressed[digits_pressed_count++] = ev.ch;
+                }
+
+                if (event.type != EVENT_NONE) {
+                        // Throttle scroll/seek/page events
+                        switch (event.type) {
+                        case EVENT_SCROLLUP:
+                        case EVENT_SCROLLDOWN:
+                        case EVENT_SEEKBACK:
+                        case EVENT_SEEKFORWARD:
+                        case EVENT_NEXTPAGE:
+                        case EVENT_PREVPAGE:
+                        case EVENT_NEXT:
+                        case EVENT_PREV:
+                        case EVENT_ENQUEUE:
+                        case EVENT_ENQUEUEANDPLAY:
+                                if (should_throttle(&event))
+                                        return TRUE;
+                                break;
+                        default:
+                                break;
                         }
 
-                        if (event.type != EVENT_NONE) {
-                                // Throttle scroll/seek/page events
-                                switch (event.type) {
-                                case EVENT_SCROLLUP:
-                                case EVENT_SCROLLDOWN:
-                                case EVENT_SEEKBACK:
-                                case EVENT_SEEKFORWARD:
-                                case EVENT_NEXTPAGE:
-                                case EVENT_PREVPAGE:
-                                case EVENT_NEXT:
-                                case EVENT_PREV:
-                                        if (should_throttle(&event))
-                                                continue;
-                                        break;
-                                default:
-                                        break;
-                                }
-
-                                // Handle seek/remove cooldown
-                                if (!cooldown2Elapsed &&
-                                    (event.type == EVENT_REMOVE || event.type == EVENT_SEEKBACK ||
-                                     event.type == EVENT_SEEKFORWARD))
-                                        event.type = EVENT_NONE;
-                                else if (event.type == EVENT_REMOVE || event.type == EVENT_SEEKBACK ||
-                                         event.type == EVENT_SEEKFORWARD) {
-                                        update_last_input_time();
-                                }
-                                // Forget Numbers
-                                if (event.type != EVENT_ENQUEUE &&
-                                    event.type != EVENT_GOTOENDOFPLAYLIST && event.type != EVENT_NONE) {
-                                        memset(digits_pressed, '\0', sizeof(digits_pressed));
-                                        digits_pressed_count = 0;
-                                }
-
-                                handle_event(&event);
+                        // Handle seek/remove cooldown
+                        if (!cooldown2Elapsed &&
+                            (event.type == EVENT_REMOVE || event.type == EVENT_SEEKBACK ||
+                             event.type == EVENT_SEEKFORWARD))
+                                event.type = EVENT_NONE;
+                        else if (event.type == EVENT_REMOVE || event.type == EVENT_SEEKBACK ||
+                                 event.type == EVENT_SEEKFORWARD) {
+                                update_last_input_time();
                         }
+
+                        // Forget Numbers
+                        if (event.type != EVENT_ENQUEUE &&
+                            event.type != EVENT_GOTOENDOFPLAYLIST && event.type != EVENT_NONE) {
+                                reset_digits_pressed();
+                        }
+
+                        handle_event(&event);
+
+                        return TRUE;
                 }
         }
 

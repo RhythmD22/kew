@@ -15,23 +15,29 @@
 #include "search_ui.h"
 
 #include "ops/library_ops.h"
-#include "ops/playback_clock.h"
 #include "ops/playback_state.h"
 #include "ops/playback_system.h"
 #include "ops/playlist_ops.h"
 #include "ops/track_manager.h"
 
+#include "sound/sound_facade.h"
 #include "sys/mpris.h"
 #include "sys/sys_integration.h"
 
 #include "utils/utils.h"
+#include <stdbool.h>
+#include <stdio.h>
+#include <ctype.h>
+
+atomic_bool enqueueing = false;
 
 void determine_song_and_notify(void)
 {
         AppState *state = get_app_state();
         SongData *current_song_data = NULL;
-        bool isDeleted = determine_current_song_data(&current_song_data);
+        bool isDeleted = sound_system_is_current_song_deleted(sound_sys);
         Node *current = get_current_song();
+        current_song_data = get_current_song_data();
 
         if (current_song_data && current)
                 current->song.duration = current_song_data->duration;
@@ -39,12 +45,13 @@ void determine_song_and_notify(void)
         if (state->uiState.lastNotifiedId != current->id) {
                 if (!isDeleted)
                         notify_song_switch(current_song_data);
-        }
+        } else
+                get_playback_state()->notifySwitch = true;
 }
 
 void update_next_song_if_needed(void)
 {
-        load_next_song();
+        load_next_song(true);
         determine_song_and_notify();
 }
 
@@ -62,45 +69,60 @@ void reset_list_after_dequeuing_playing_song(void)
 
         if (get_current_song() == NULL && node == NULL) {
                 ps->loadedNextSong = false;
-                audio_data.end_of_list_reached = true;
-                audio_data.restart = true;
+                sound_system_set_end_of_list_reached(sound_sys, true);
+                start_playing(true);
 
                 emit_metadata_changed("", "", "", "",
                                       "/org/mpris/MediaPlayer2/TrackList/NoTrack",
                                       NULL, 0);
                 emit_playback_stopped_mpris();
 
-                playback_cleanup();
+                sound_system_uninit_device(sound_sys);
 
                 trigger_refresh();
 
-                switch_audio_implementation();
-
-                unload_song_a();
-                unload_song_b();
+                switch_decoder();
 
                 state->uiState.songWasRemoved = true;
 
-                UserData *user_data = audio_data.pUserData;
-
-                user_data->current_song_data = NULL;
-
-                audio_data.currentFileIndex = 0;
-                audio_data.restart = true;
+                start_playing(true);
                 ps->waitingForNext = true;
-
-                PlaybackState *ps = get_playback_state();
-
-                ps->loadingdata.loadA = true;
-                ps->usingSongDataA = false;
-
-                ma_data_source_uninit(&audio_data);
-
-                audio_data.switchFiles = false;
 
                 if (get_playlist()->count == 0)
                         set_song_to_start_from(NULL);
         }
+}
+
+bool starts_with_track_number(const char *name)
+{
+    if (!isdigit((unsigned char)*name))
+        return false;
+
+    while (isdigit((unsigned char)*name))
+        name++;
+
+    // Accept common separators
+    switch (*name) {
+        case ' ':
+        case '.':
+        case '-':
+        case '_':
+            return true;
+    }
+
+    return false;
+}
+
+bool check_songs_for_track_number(FileSystemEntry* entry) {
+    if (entry == NULL) return false;
+    if (entry->is_directory) {
+        if (entry->children == NULL) return false;
+        return check_songs_for_track_number(entry->children);
+    }
+    else if (entry->next == NULL) {
+        return false;
+    }
+    return (starts_with_track_number(entry->name) && starts_with_track_number(entry->next->name));
 }
 
 FileSystemEntry *enqueue_songs(FileSystemEntry *entry, FileSystemEntry **chosen_dir)
@@ -122,7 +144,14 @@ FileSystemEntry *enqueue_songs(FileSystemEntry *entry, FileSystemEntry **chosen_
                                                                    // the root
                                                 shuffle = true;
 
-                                        has_enqueued = enqueue_children(entry->children, &first_enqueued_entry);
+                                        if (count_music_files_in_directory(entry) > MAX_SORT_SIZE ||
+                                            check_songs_for_track_number(entry) // songs are already ordered if track number is in name
+                                        ) {
+                                            has_enqueued = enqueue_children(entry->children, &first_enqueued_entry);
+                                        }
+                                        else {
+                                            has_enqueued = enqueue_children_sorted(entry->children, &first_enqueued_entry);
+                                        }
 
                                         ps->nextSongNeedsRebuilding = true;
                                 } else {
@@ -231,11 +260,62 @@ FileSystemEntry *enqueue_songs(FileSystemEntry *entry, FileSystemEntry **chosen_
 
                 shuffle_playlist(playlist);
                 set_song_to_start_from(NULL);
+                first_enqueued_entry = NULL;
         } else if (ps->nextSongNeedsRebuilding) {
                 reshuffle_playlist();
         }
 
         return first_enqueued_entry;
+}
+
+Node *enqueue_playlist(FileSystemEntry *entry)
+{
+        AppState *state = get_app_state();
+        PlaybackState *ps = get_playback_state();
+        PlayList *playlist = get_playlist();
+        Node *first_enqueued_node = NULL;
+
+        if (should_start_playing()) {
+                Node *last_song = find_selected_entry_by_id(playlist, ps->lastPlayedId);
+                state->uiState.startFromTop = false;
+
+                if (last_song == NULL) {
+                        if (playlist->tail != NULL)
+                                ps->lastPlayedId = playlist->tail->id;
+                        else {
+                                ps->lastPlayedId = -1;
+                                state->uiState.startFromTop = true;
+                        }
+                }
+        }
+
+        pthread_mutex_lock(&(playlist->mutex));
+
+        if (!entry->is_enqueued) {
+                set_next_song(NULL);
+                ps->nextSongNeedsRebuilding = true;
+
+                enqueue_m3u(entry->full_path, get_library(), &first_enqueued_node);
+
+                if (state->uiSettings.shuffle_enabled)
+                        reshuffle_playlist();
+
+                entry->is_enqueued = 1;
+        } else {
+                set_next_song(NULL);
+                ps->nextSongNeedsRebuilding = true;
+
+                dequeue_m3u(entry->full_path, get_library());
+                entry->is_enqueued = 0;
+        }
+
+        reset_list_after_dequeuing_playing_song();
+
+        pthread_mutex_unlock(&(playlist->mutex));
+
+        trigger_refresh();
+
+        return first_enqueued_node;
 }
 
 FileSystemEntry *enqueue(FileSystemEntry *entry)
@@ -244,7 +324,7 @@ FileSystemEntry *enqueue(FileSystemEntry *entry)
         FileSystemEntry *first_enqueued_entry = NULL;
         PlaybackState *ps = get_playback_state();
 
-        if (audio_data.restart) {
+        if (should_start_playing()) {
                 Node *last_song = find_selected_entry_by_id(get_playlist(), ps->lastPlayedId);
                 state->uiState.startFromTop = false;
 
@@ -304,6 +384,10 @@ Node *pick_random_node(Node *first)
 
 void view_enqueue(bool play_immediately)
 {
+        if (atomic_exchange(&enqueueing, true)) {
+                return; // already true → bail
+        }
+
         AppState *state = get_app_state();
         PlayList *playlist = get_playlist();
         PlaybackState *ps = get_playback_state();
@@ -320,7 +404,7 @@ void view_enqueue(bool play_immediately)
                 }
         }
 
-        if (state->currentView == PLAYLIST_VIEW) {
+        if (state->currentView == PLAYLIST_VIEW || is_digits_pressed() > 0) {
                 if (is_digits_pressed() == 0) {
                         playlist_play(playlist);
                 } else {
@@ -330,7 +414,8 @@ void view_enqueue(bool play_immediately)
 
                         ps->nextSongNeedsRebuilding = false;
 
-                        skip_to_numbered_song(song_number);
+                        if (song_number <= playlist->count)
+                                skip_to_numbered_song(song_number);
                 }
         }
 
@@ -341,20 +426,14 @@ void view_enqueue(bool play_immediately)
                         entry = state->uiState.currentSearchEntry;
                 }
 
-                if (entry == NULL)
+                if (entry == NULL) {
+                        atomic_store(&enqueueing, false);
                         return;
+                }
 
-                // Enqueue playlist
-                if (path_ends_with(entry->full_path, "m3u") ||
-                    path_ends_with(entry->full_path, "m3u8")) {
-
-                        if (playlist != NULL) {
-                                first_enqueued_node = read_m3u_file(entry->full_path, playlist);
-                                deep_copy_play_list_onto_list(playlist, &unshuffled_playlist);
-
-                                if (state->uiSettings.shuffle_enabled)
-                                        reshuffle_playlist();
-                        }
+                // Enqueue / dequeue playlist file (toggle, mirroring directory behaviour)
+                if (is_m3u_file(entry)) {
+                        first_enqueued_node = enqueue_playlist(entry);
                 } else {
                         FileSystemEntry *first_enqueued_entry = enqueue(entry); // Enqueue song
                         if (first_enqueued_entry)
@@ -380,4 +459,6 @@ void view_enqueue(bool play_immediately)
         if (canGoNext != couldGoNext) {
                 emit_boolean_property_changed("can_go_next", couldGoNext);
         }
+
+        atomic_store(&enqueueing, false);
 }

@@ -1,5 +1,5 @@
 /**
- * @file m4a.[h]
+ * @file m4a.h
  * @brief M4A/AAC decoder interface.
  *
  * Provides decoding support for M4A and AAC-encoded audio files,
@@ -8,11 +8,13 @@
 
 #ifndef M4A_H
 #define M4A_H
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 #ifdef USE_FAAD
-#include "common/common.h"
+
+#include "audiotypes.h"
 
 #include "../include/minimp4/minimp4.h"
 #include "neaacdec.h"
@@ -245,7 +247,6 @@ ma_result m4a_decoder_ds_get_cursor(ma_data_source *p_data_source,
  */
 ma_result m4a_decoder_ds_get_length(ma_data_source *p_data_source,
                                     ma_uint64 *p_length);
-
 
 #if defined(MINIAUDIO_IMPLEMENTATION) || defined(MA_IMPLEMENTATION)
 
@@ -705,7 +706,7 @@ MA_API ma_result m4a_decoder_init_file(
 
                 unsigned char objectType = decoder_config[0];
                 if (objectType == 5 || objectType >= 29) {
-                        set_error_message("File is encoded with HE-AAC which is not supported");
+                        fprintf(stderr, "File is encoded with HE-AAC which is not supported.\n");
                         free(frameData);
                         free(decoder_config);
                         fclose(fp);
@@ -719,7 +720,7 @@ MA_API ma_result m4a_decoder_init_file(
 
                 int initResult = NeAACDecInit2(pM4a->hDecoder, (unsigned char *)decoder_config, decoder_config_size, &sample_rate, &channels);
                 if (initResult < 0) {
-                        printf("Error initializing decoder. Code: %d\n", initResult);
+                        fprintf(stderr, "Error initializing decoder. Code: %d\n", initResult);
                         free(frameData);
                         free(decoder_config);
                         NeAACDecClose(pM4a->hDecoder);
@@ -731,7 +732,7 @@ MA_API ma_result m4a_decoder_init_file(
 
                 // Check if the sample_rate and channels are correctly initialized
                 if (sample_rate == 0 || channels == 0) {
-                        printf("Error: Invalid sample rate or channel count.\n");
+                        fprintf(stderr, "Error: Invalid sample rate or channel count.\n");
                         free(frameData);
                         NeAACDecClose(pM4a->hDecoder);
                         fclose(fp);
@@ -801,7 +802,7 @@ MA_API ma_result m4a_decoder_init_file(
 
                 if (is_alac(fp, alac_dsi, &alac_dsi_size)) {
                         // This is an alac file and is currently unsupported.
-                        set_error_message("M4a files that use the ALAC encoder are not supported.");
+                        fprintf(stderr, "M4a files that use the ALAC encoder are not supported.");
                         return MA_ERROR;
                 } else // AAC
                 {
@@ -823,7 +824,7 @@ MA_API ma_result m4a_decoder_init_file(
                                 uint8_t object_type = (decoder_config[0] >> 3) & 0x1F;
 
                                 if (object_type == 5 || object_type == 29) {
-                                        set_error_message("Unsupported AAC object type: (HE-AAC or PS)");
+                                        fprintf(stderr, "Unsupported AAC object type: (HE-AAC or PS)");
                                         return MA_ERROR;
                                 }
                         }
@@ -861,6 +862,7 @@ MA_API ma_result m4a_decoder_init_file(
                         // Initialize other fields
                         leftoverSampleCount = 0;
                         pM4a->cursor = 0;
+                        fseek(pM4a->file, 0, SEEK_SET);
 
                         return MA_SUCCESS;
                 }
@@ -1034,8 +1036,22 @@ MA_API ma_result m4a_decoder_read_pcm_frames(
                                 break;
                         }
 
-                        // Read the sample data directly from the file
+                        if (sample_offset < 0) {
+                                result = MA_ERROR;
+                                break;
+                        }
+
+                        if (pM4a->cursor != (ma_uint64)sample_offset) {
+                                if (file_on_seek(pM4a->file, sample_offset, ma_seek_origin_start) != MA_SUCCESS) {
+                                        fprintf(stderr, "Failed to seek to sample_offset %lld\n", sample_offset);
+                                        result = MA_ERROR;
+                                        break;
+                                }
+                                pM4a->cursor = sample_offset; // update position tracker
+                        }
+
                         size_t bytes_read = 0;
+
                         if (file_on_read(pM4a->file, sample_data, frame_bytes, &bytes_read) != MA_SUCCESS || bytes_read != frame_bytes) {
                                 free(sample_data);
                                 result = MA_ERROR;
@@ -1050,8 +1066,9 @@ MA_API ma_result m4a_decoder_read_pcm_frames(
                         free(sample_data); // Free the sample data buffer
 
                         if (pM4a->frameInfo.error > 0) {
-                                set_error_message("Decoding Error: could be mislabeled and unsupported HE-AAC or PS file");
+                                fprintf(stderr, "Decoding Error %d: %s\n", pM4a->frameInfo.error, NeAACDecGetErrorMessage(pM4a->frameInfo.error));
                                 // Error in decoding, skip to the next frame.
+
                                 continue;
                         }
 
@@ -1097,7 +1114,10 @@ MA_API ma_result m4a_decoder_read_pcm_frames(
                 *p_frames_read = totalFramesProcessed;
         }
 
-        return (totalFramesProcessed > 0) ? MA_SUCCESS : result;
+        if (totalFramesProcessed > 0 && result != MA_AT_END)
+                return MA_SUCCESS;
+
+        return result;
 }
 
 MA_API ma_result m4a_decoder_seek_to_pcm_frame(m4a_decoder *pM4a, ma_uint64 frame_index)
@@ -1105,10 +1125,10 @@ MA_API ma_result m4a_decoder_seek_to_pcm_frame(m4a_decoder *pM4a, ma_uint64 fram
         if (pM4a == NULL)
                 return MA_INVALID_ARGS;
 
-        if (frame_index >= pM4a->total_samples)
+        if (frame_index >= pM4a->total_samples * 1024)
                 return MA_INVALID_ARGS;
 
-        pM4a->current_sample = (uint32_t)frame_index;
+        pM4a->current_sample = (ma_uint32)(frame_index / 1024);
 
         if (pM4a->file_type == k_rawAAC) {
                 return MA_ERROR;
@@ -1134,8 +1154,7 @@ MA_API ma_result m4a_decoder_seek_to_pcm_frame(m4a_decoder *pM4a, ma_uint64 fram
                 }
 
                 leftoverSampleCount = 0;
-
-                pM4a->cursor = frame_index;
+                pM4a->cursor = pM4a->current_sample * 1024;
 
                 return MA_SUCCESS;
         } else {
@@ -1162,7 +1181,7 @@ MA_API ma_result m4a_decoder_seek_to_pcm_frame(m4a_decoder *pM4a, ma_uint64 fram
                 NeAACDecPostSeekReset(pM4a->hDecoder, (long)pM4a->current_sample);
 
                 leftoverSampleCount = 0;
-                pM4a->cursor = frame_index;
+                pM4a->cursor = pM4a->current_sample * 1024;
 
                 return MA_SUCCESS;
         }
@@ -1251,7 +1270,23 @@ MA_API ma_result m4a_decoder_get_length_in_pcm_frames(m4a_decoder *pM4a, ma_uint
 
         // Calculate the length in PCM frames using the total number of samples and the sample rate.
         if (pM4a->total_samples > 0 && pM4a->sample_rate > 0) {
-                *p_length = (ma_uint64)pM4a->total_samples;
+                ma_uint64 totalFrames = 0;
+
+                for (ma_uint32 i = 0; i < pM4a->track->sample_count; i++) {
+                        unsigned frame_bytes, timestamp, duration;
+
+                        MP4D_frame_offset(&pM4a->mp4,
+                                          pM4a->audio_track_index,
+                                          i,
+                                          &frame_bytes,
+                                          &timestamp,
+                                          &duration);
+
+                        totalFrames += duration;
+                }
+
+                *p_length = totalFrames;
+
                 return MA_SUCCESS;
         }
 

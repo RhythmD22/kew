@@ -6,6 +6,9 @@
  * title, artist, album and embedded artwork using the TagLib library.
  * Exposes a C-compatible API for integration with the main C codebase.
  */
+
+#include "lyrics.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -184,15 +187,15 @@ getOggFieldListCaseInsensitive(const TagLib::Ogg::XiphComment *comment,
         return TagLib::StringList();
 }
 
-std::string toLower(const std::string& str) {
-    std::string lowerStr = str;
-    std::transform(
-        lowerStr.begin(),
-        lowerStr.end(),
-        lowerStr.begin(),
-        [](unsigned char c) { return std::tolower(c); }
-    );
-    return lowerStr;
+std::string toLower(const std::string &str)
+{
+        std::string lowerStr = str;
+        std::transform(
+            lowerStr.begin(),
+            lowerStr.end(),
+            lowerStr.begin(),
+            [](unsigned char c) { return std::tolower(c); });
+        return lowerStr;
 }
 
 extern "C" {
@@ -1026,15 +1029,18 @@ static bool parseTimedLyricsFromTagLines(const TagLib::StringList &lines, Lyrics
         if (!lyrics->lines)
                 return false;
 
+        static const double fracDivisors[] = {1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0, 10000000.0};
+
         for (const auto &line : lines) {
                 std::string text = line.toCString(true);
                 if (text.empty() || text[0] != '[')
                         continue;
 
-                int min = 0, sec = 0, cs = 0;
+                int min = 0, sec = 0;
+                char fracStr[8] = {0};
                 char lyricText[512] = {0};
 
-                if (sscanf(text.c_str(), "[%d:%d.%d]%511[^\r\n]", &min, &sec, &cs, lyricText) == 4) {
+                if (sscanf(text.c_str(), "[%d:%d.%7[0-9]]%511[^\r\n]", &min, &sec, fracStr, lyricText) == 4) {
                         if (lyrics->count == capacity) {
                                 capacity *= 2;
                                 LyricsLine *newLines = (LyricsLine *)realloc(lyrics->lines, sizeof(LyricsLine) * capacity);
@@ -1043,6 +1049,9 @@ static bool parseTimedLyricsFromTagLines(const TagLib::StringList &lines, Lyrics
                                 lyrics->lines = newLines;
                         }
 
+                        int fracLen = (int)strlen(fracStr);
+                        double frac = atoi(fracStr) / fracDivisors[fracLen];
+
                         char *start = lyricText;
                         while (isspace((unsigned char)*start))
                                 start++;
@@ -1050,7 +1059,7 @@ static bool parseTimedLyricsFromTagLines(const TagLib::StringList &lines, Lyrics
                         while (end > start && isspace((unsigned char)*(end - 1)))
                                 *(--end) = '\0';
 
-                        lyrics->lines[lyrics->count].timestamp = min * 60.0 + sec + cs / 100.0;
+                        lyrics->lines[lyrics->count].timestamp = min * 60.0 + sec + frac;
                         lyrics->lines[lyrics->count].text = strdup(start);
                         if (!lyrics->lines[lyrics->count].text)
                                 return false;
@@ -1340,6 +1349,66 @@ static bool loadLyricsFromUSLTTag(TagLib::ID3v2::Tag *id3v2Tag,
         return true;
 }
 
+uint32_t pullDiscNumber(const char *filepath, bool max)
+{
+    TagLib::MPEG::File file(filepath);
+
+    if (!file.isValid())
+        return 1;
+
+    TagLib::ID3v2::Tag *tag = file.ID3v2Tag();
+    if (!tag)
+        return 1;
+
+    TagLib::ID3v2::FrameList frames = tag->frameListMap()["TPOS"];
+
+    if (frames.isEmpty())
+        return 1;
+
+    auto *frame = dynamic_cast<TagLib::ID3v2::TextIdentificationFrame *>(frames.front());
+    if (!frame)
+        return 1;
+
+    TagLib::String str = frame->toString();
+    std::string raw = str.to8Bit(true);
+    char *delimiter;
+    uint32_t disc_number = strtoul(raw.c_str(), &delimiter, 10);
+    if (max) {
+        if (*(delimiter + 1) != '\0' &&
+            *(delimiter + 1) >= '0' &&
+            *(delimiter + 1) <= '9')
+        {
+            disc_number = strtoul(delimiter + 1, NULL, 10);
+        }
+    }
+
+    return disc_number;
+}
+
+uint32_t pullTrackNumber(const char *input_file) {
+        // Use TagLib's FileRef for generic file parsing.
+        TagLib::FileRef f(input_file);
+        if (f.isNull() || !f.file()) {
+                fprintf(stderr,
+                        "FileRef is null or file could not be opened: "
+                        "'%s'\n",
+                        input_file);
+
+                return -1;
+        }
+
+        const TagLib::Tag *tag = f.tag();
+        if (!tag) {
+                fprintf(stderr, "Tag is null for file '%s'\n",
+                        input_file);
+                return -2;
+        }
+
+        uint32_t trackNumber = tag->track();
+
+        return trackNumber;
+}
+
 int extractTags(const char *input_file, TagSettings *tag_settings,
                 double *duration, const char *coverFilePath, Lyrics **lyrics)
 {
@@ -1374,7 +1443,6 @@ int extractTags(const char *input_file, TagSettings *tag_settings,
                         input_file);
                 return -2;
         }
-
         // Copy the title
         c_strcpy(tag_settings->title, tag->title().toCString(true),
                  sizeof(tag_settings->title) - 1);
@@ -1443,11 +1511,12 @@ int extractTags(const char *input_file, TagSettings *tag_settings,
         }
 
         // Extract replay gain information
-        if (std::string(input_file).find(".mp3") != std::string::npos) {
-                TagLib::MPEG::File mp3File(input_file);
-                TagLib::ID3v2::Tag *id3v2Tag = mp3File.ID3v2Tag();
+        if (auto mp3File = dynamic_cast<TagLib::MPEG::File *>(f.file())) {
+
+                TagLib::ID3v2::Tag *id3v2Tag = mp3File->ID3v2Tag();
 
                 if (id3v2Tag) {
+
                         // Retrieve all TXXX frames
                         TagLib::ID3v2::FrameList frames =
                             id3v2Tag->frameList("TXXX");
@@ -1488,7 +1557,7 @@ int extractTags(const char *input_file, TagSettings *tag_settings,
                         }
                 }
 
-                TagLib::APE::Tag *apeTag = mp3File.APETag();
+                TagLib::APE::Tag *apeTag = mp3File->APETag();
 
                 if (apeTag) {
                         TagLib::APE::ItemListMap items =
@@ -1509,42 +1578,39 @@ int extractTags(const char *input_file, TagSettings *tag_settings,
                                 }
                         }
                 }
-        } else if (std::string(input_file).find(".flac") !=
-                   std::string::npos) {
-                TagLib::FLAC::File flacFile(input_file);
-                TagLib::Ogg::XiphComment *xiphComment =
-                    flacFile.xiphComment();
+        }
 
-                if (xiphComment) {
-                        const TagLib::Ogg::FieldListMap &fieldMap =
-                            xiphComment->fieldListMap();
+        // extract replay gain for flac, opus, ogg
+        TagLib::Ogg::XiphComment *xiphComment = nullptr;
 
-                        auto trackGainIt =
-                            fieldMap.find("REPLAYGAIN_TRACK_GAIN");
-                        if (trackGainIt != fieldMap.end()) {
-                                const TagLib::StringList &
-                                    trackGainList = trackGainIt->second;
-                                if (!trackGainList.isEmpty()) {
-                                        tag_settings->replaygainTrack =
-                                            parseDecibelValue(
-                                                trackGainList.front());
-                                }
-                        }
+        if (auto flacFile = dynamic_cast<TagLib::FLAC::File *>(f.file())) {
+                xiphComment = flacFile->xiphComment();
+        } else if (auto oggFile = dynamic_cast<TagLib::Ogg::Vorbis::File *>(f.file())) {
+                xiphComment = oggFile->tag();
+        } else if (auto opusFile = dynamic_cast<TagLib::Ogg::Opus::File *>(f.file())) {
+                xiphComment = opusFile->tag();
+        }
 
-                        auto albumGainIt =
-                            fieldMap.find("REPLAYGAIN_ALBUM_GAIN");
-                        if (albumGainIt != fieldMap.end()) {
-                                const TagLib::StringList &
-                                    albumGainList = albumGainIt->second;
-                                if (!albumGainList.isEmpty()) {
-                                        tag_settings->replaygainAlbum =
-                                            parseDecibelValue(
-                                                albumGainList.front());
-                                }
-                        }
+        if (xiphComment) {
+                const TagLib::Ogg::FieldListMap &fieldMap =
+                    xiphComment->fieldListMap();
+
+                auto trackGainIt = fieldMap.find("REPLAYGAIN_TRACK_GAIN");
+                if (trackGainIt != fieldMap.end() &&
+                    !trackGainIt->second.isEmpty()) {
+                        tag_settings->replaygainTrack =
+                            parseDecibelValue(trackGainIt->second.front());
+                }
+
+                auto albumGainIt = fieldMap.find("REPLAYGAIN_ALBUM_GAIN");
+                if (albumGainIt != fieldMap.end() &&
+                    !albumGainIt->second.isEmpty()) {
+                        tag_settings->replaygainAlbum =
+                            parseDecibelValue(albumGainIt->second.front());
                 }
         }
 
+        // extract cover art
         std::string filename(input_file);
         std::string extension = toLower(filename.substr(filename.find_last_of('.') + 1));
         bool coverArtExtracted = false;
@@ -1570,7 +1636,7 @@ int extractTags(const char *input_file, TagSettings *tag_settings,
                         coverArtExtracted = extractCoverArtFromOggVideo(
                             input_file, coverFilePath);
                 }
-        } else if (extension == "wav") {
+        } else if (extension == "wav" || extension == "aiff") {
                 coverArtExtracted =
                     extractCoverArtFromWav(input_file, coverFilePath);
         }

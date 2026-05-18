@@ -10,15 +10,22 @@
 
 ## Contributors (in alphabetical order)
 
+* 2863189117
 * Alex Hart @hartalex <alex_codeberg@hart.gg>
 * Chromium-3-Oxide <Chromium3Oxide@protonmail.com>
+* @chrontax
 * Davis @kazemaksOG <davis.kazemaks@gmail.com>
 * @dandelion-75
 * DNEGEL3125 @DNEGEL3125
 * @episvr
+* @feng1st
 * Hans Petter Jansson @hpjansson <hpj@hpjansson.org>
+* @hartalex
 * @hiruocha
+* @hnatt Hnat Kubov
 * @hypercunx
+* @Kolby11
+* @ilx159
 * Joey Schaff @jaoheah / @jaoh (codeberg) <jschaff@proton.me>
 * John Lakeman @j-lakeman <le0324tb@anonaddy.me>
 * @noiamnote
@@ -31,6 +38,7 @@
 * Rioprastyo17
 * Robertson D. Torress @Welpyes
 * Rowan Shi @rowanxshi
+* @rudra-dhamecha
 * Rui Chen @chenrui333 <rui@chenrui.dev>
 * Ruoyu Zhong @ZhongRuoyu <zhongruoyu@outlook.com>
 * Ryouji @soryu-ryouji <helloryouji@outlook.com>

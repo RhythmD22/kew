@@ -5,13 +5,10 @@
 <br>
 
 <div align="center">
-  <a href="https://jenova7.bandcamp.com/album/lost-sci-fi-movie-themes">
-    <img src="images/kew.gif" alt="Screenshot">
+  <a href="https://jenova7.bandcamp.com/album/dusted-jazz-vol-3">
+    <img src="images/chroma.gif" alt="Screenshot">
   </a>
   <br>
-  Screenshot showing <a href="https://jenova7.bandcamp.com/album/lost-sci-fi-movie-themes">
-    Jenova 7: Lost Sci-Fi Movie Themes
-  </a>.
 </div>
 <br><br>
 
@@ -35,9 +32,10 @@ kew (/kjuː/) is a terminal music player.
  * Gapless playback.
  * Explore the library and enqueue files or folders.
  * Search your music library and add to the queue.
- * Supports MP3, FLAC, MPEG-4/M4A (AAC), OPUS, OGG, Webm and WAV audio.
+ * Supports MP3, FLAC, MPEG-4/M4A (AAC), OPUS, OGG, Webm, WAV and AIFF audio.
  * Supports desktop events through MPRIS.
  * Supports lyrics through .lrc files, embedded SYLT (Mp3) or Vorbis comments (Flac,Ogg,Opus).
+ * Supports replay gain.
  * Use themes or colors derived from covers.
 
  *kew displays it's status in Discord by default, but this can be disabled both in Discord and in the kew config file kewrc.
@@ -50,7 +48,13 @@ Please open new issues and pull requests there.
 
 <a href="https://repology.org/project/kew/versions"><img src="https://repology.org/badge/vertical-allrepos/kew.svg" alt="Packaging status" align="right"></a>
 
-Install through your package manager or homebrew (macOS). If you can't find it on your distro, or you want the bleeding edge, follow the [Manual Installation Instructions](docs/MANUAL-INSTALL-INSTRUCTIONS.md). For NixOS, there is a [Nix Flake](flake.nix).
+Install through your package manager or homebrew (macOS). If you can't find it on your distro, or you want the bleeding edge, follow the [Manual Installation Instructions](docs/MANUAL-INSTALL-INSTRUCTIONS.md).
+
+For NixOS, there is an official package but also a [Nix Flake](flake.nix) that tracks the latest commit.
+
+For Artix Linux it's in the [Artist repository](https://wiki.artixlinux.org/Main/Repositories#artist_repository).
+
+For Fedora there is an [unofficial RPM](https://copr.fedorainfracloud.org/coprs/fed500/kew).
 
 ## Usage
 
@@ -145,8 +149,8 @@ kew path "/home/joe/Musik/" (changes the path)
 * <kbd>v</kbd> to toggle the visualizer.
 * <kbd>b</kbd> to toggle album covers drawn in ascii or as a normal image.
 * <kbd>n</kbd> to toggle notifications.
-* <kbd>a</kbd> to seek back.
-* <kbd>d</kbd> to seek forward.
+* <kbd>a</kbd> to seek back. keep pressed for a longer duration, it executes the seek when you release the key.
+* <kbd>d</kbd> to seek forward. keep pressed for a longer duration, it executes the seek when you release the key.
 * <kbd>x</kbd> to save the currently loaded playlist to a m3u file in your music folder.
 * <kbd>Tab</kbd> to switch to next view.
 * <kbd>Shift+Tab</kbd> to switch to previous view.
@@ -194,22 +198,40 @@ Try the theme editor (by @bholroyd): [https://bholroyd.github.io/Kew-tip/](https
 
 ## Visulizations / Chroma
 
-Starting with kew 4.0, you can add visualizations to kew by installing Chroma:
+Starting with kew 4.0, you can add visualizations to kew by installing Chroma, an app by another developer.
 
-https://github.com/yuri-xyz/chroma
+You'll need to install a specific commit, which is the latest one that works.
 
-Enable and cycle through them by pressing <kbd>c</kbd> in track view.
+How to install Chroma:
+
+```
+git clone https://github.com/yuri-xyz/chroma.git
+
+cd chroma
+
+git checkout 0d2fd5151b0c9df19b0122f82ed65f65dd03cb79
+
+cargo install --path . --features audio
+```
+
+Enable and cycle through the visualizations by pressing <kbd>c</kbd> in track view.
 
 Disable by pressing <kbd>b</kbd>.
 
-<div align="center">
-  <a href="https://jenova7.bandcamp.com/album/lost-sci-fi-movie-themes">
-    <img src="images/chroma.gif" alt="Chroma">
-  </a>
-</div>
-<br><br>
-
 This works by kew being fed frames from Chroma and does not add bloat to kew.
+
+### Configuration
+
+You can customize Chroma's behavior in your `kewrc` file:
+
+- `chromaPath`: Path to a custom Chroma preset file. If set, this preset will be used instead of the built-in ones.
+- `chromaDevice`: Specify the audio device for Chroma to capture from (e.g., `PipeWire Sound Server`). Use `chroma --list-audio-devices` to find available devices.
+
+```ini
+[chroma]
+chromaPath=/path/to/your/custom.preset
+chromaDevice=PipeWire Sound Server
+```
 
 ## If Colors or Graphics Look Wrong
 

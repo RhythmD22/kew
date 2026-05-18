@@ -7,8 +7,9 @@
  * and different rendering modes (truecolor, ASCII, etc.).
  */
 
-#include "common/appstate.h"
 #include "common/common.h"
+
+#include "utils/img_utils.h"
 
 #include "img_func.h"
 
@@ -17,16 +18,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
-// Disable some warnings for stb headers.
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wcast-qual"
-#pragma GCC diagnostic ignored "-Wstrict-overflow"
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-#define STB_IMAGE_RESIZE_IMPLEMENTATION
-#include <stb_image_resize2.h>
-#pragma GCC diagnostic pop
 
 /* Include after chafa.h for G_OS_WIN32 */
 #ifdef G_OS_WIN32
@@ -37,11 +28,6 @@
 #else
 #include <sys/ioctl.h> /* ioctl */
 #endif
-
-#define MACRO_STRLEN(s) (sizeof(s) / sizeof(s[0]))
-
-char scale[] = "$@&B%8WM#ZO0QoahkbdpqwmLCJUYXIjft/\\|()1{}[]l?zcvunxr!<>i;:*-+~_,\"^`'. ";
-unsigned int brightness_levels = MACRO_STRLEN(scale) - 2;
 
 #if CHAFA_VERSION_CUR_STABLE >= G_ENCODE_VERSION(1, 16)
 
@@ -385,14 +371,61 @@ convert_image(const void *pixels, gint pix_width, gint pix_height,
         chafa_image_set_frame(image, frame);
 
         placement = chafa_placement_new(image, 1);
-        chafa_placement_set_tuck(placement, CHAFA_TUCK_STRETCH);
-        chafa_placement_set_halign(placement, CHAFA_ALIGN_START);
-        chafa_placement_set_valign(placement, CHAFA_ALIGN_START);
+        chafa_placement_set_tuck(placement, CHAFA_TUCK_FIT);
+        chafa_placement_set_halign(placement, CHAFA_ALIGN_CENTER);
+        chafa_placement_set_valign(placement, CHAFA_ALIGN_CENTER);
         chafa_canvas_set_placement(canvas, placement);
 
         printable = chafa_canvas_print(canvas, NULL);
 
         /* Clean up and return */
+
+        chafa_placement_unref(placement);
+        chafa_image_unref(image);
+        chafa_frame_unref(frame);
+        chafa_canvas_unref(canvas);
+        chafa_canvas_config_unref(config);
+        chafa_symbol_map_unref(symbol_map);
+        chafa_term_info_unref(term_info);
+        canvas = NULL;
+        config = NULL;
+        symbol_map = NULL;
+        term_info = NULL;
+
+        return printable;
+#elif CHAFA_VERSION_CUR_STABLE >= G_ENCODE_VERSION(1, 14)
+
+        ChafaFrame *frame;
+        ChafaImage *image;
+        ChafaPlacement *placement;
+
+        detect_terminal(&term_info, &mode, &pixel_mode);
+
+        symbol_map = chafa_symbol_map_new();
+        chafa_symbol_map_add_by_tags(symbol_map, CHAFA_SYMBOL_TAG_BLOCK);
+
+        config = chafa_canvas_config_new();
+        chafa_canvas_config_set_canvas_mode(config, mode);
+        chafa_canvas_config_set_pixel_mode(config, pixel_mode);
+        chafa_canvas_config_set_geometry(config, width_cells, height_cells);
+        chafa_canvas_config_set_symbol_map(config, symbol_map);
+
+        if (cell_width > 0 && cell_height > 0)
+                chafa_canvas_config_set_cell_geometry(config, cell_width, cell_height);
+
+        canvas = chafa_canvas_new(config);
+        frame = chafa_frame_new_borrow((gpointer)pixels, pixel_type, pix_width,
+                                         pix_height, pix_rowstride);
+        image = chafa_image_new();
+        chafa_image_set_frame(image, frame);
+
+        placement = chafa_placement_new(image, 1);
+        chafa_placement_set_tuck(placement, CHAFA_TUCK_FIT);
+        chafa_placement_set_halign(placement, CHAFA_ALIGN_CENTER);
+        chafa_placement_set_valign(placement, CHAFA_ALIGN_CENTER);
+        chafa_canvas_set_placement(canvas, placement);
+
+        printable = chafa_canvas_print(canvas, term_info);
 
         chafa_placement_unref(placement);
         chafa_image_unref(image);
@@ -458,23 +491,6 @@ convert_image(const void *pixels, gint pix_width, gint pix_height,
 
         return printable;
 #endif
-}
-
-// The function to load and return image data
-unsigned char *get_bitmap(const char *image_path, int *width, int *height)
-{
-        if (image_path == NULL)
-                return NULL;
-
-        int channels;
-
-        unsigned char *image = stbi_load(image_path, width, height, &channels, 4); // Force 4 channels (RGBA)
-        if (!image) {
-                fprintf(stderr, "Failed to load image: %s\n", image_path);
-                return NULL;
-        }
-
-        return image;
 }
 
 float calc_aspect_ratio(void)
@@ -612,58 +628,6 @@ void print_square_bitmap(int row, int col, unsigned char *pixels, int width, int
         g_strfreev(lines);
         g_string_free(printable, TRUE);
 }
-unsigned char luminance_from_r_g_b(unsigned char r, unsigned char g, unsigned char b)
-{
-        return (unsigned char)(0.2126 * r + 0.7152 * g + 0.0722 * b);
-}
-
-void check_if_bright_pixel(unsigned char r, unsigned char g, unsigned char b, bool *found)
-{
-        // Calc luminace and use to find Ascii char.
-        unsigned char ch = luminance_from_r_g_b(r, g, b);
-
-        if (ch > 80 && !(r < g + 20 && r > g - 20 && g < b + 20 && g > b - 20) && !(r > 150 && g > 150 && b > 150)) {
-                *found = true;
-        }
-}
-
-int get_cover_color(unsigned char *pixels, int width, int height, unsigned char *r, unsigned char *g, unsigned char *b)
-{
-        if (pixels == NULL || width <= 0 || height <= 0) {
-                return -1;
-        }
-
-        int channels = 4; // RGBA format
-
-        bool found = false;
-        int num_pixels = width * height;
-
-        for (int i = 0; i < num_pixels; i++) {
-                int index = i * channels;
-                unsigned char red = pixels[index + 0];
-                unsigned char green = pixels[index + 1];
-                unsigned char blue = pixels[index + 2];
-
-                check_if_bright_pixel(red, green, blue, &found);
-
-                if (found) {
-                        *r = red;
-                        *g = green;
-                        *b = blue;
-                        break;
-                }
-        }
-
-        return found ? 0 : -1;
-}
-
-unsigned char calc_ascii_char(PixelData *p)
-{
-        unsigned char ch = luminance_from_r_g_b(p->r, p->g, p->b);
-        int rescaled = ch * brightness_levels / 256;
-
-        return scale[brightness_levels - rescaled];
-}
 
 int convert_to_ascii(int row, int col, const char *filepath, unsigned int height, bool centered)
 {
@@ -716,25 +680,68 @@ int convert_to_ascii(int row, int col, const char *filepath, unsigned int height
         unsigned int corrected_width = (int)(height * aspect_ratio_correction);
 
         int rwidth, rheight, rchannels;
-        unsigned char *read_data = stbi_load(filepath, &rwidth, &rheight, &rchannels, 3);
+        unsigned char *read_data = image_load_rgb(filepath, &rwidth, &rheight, &rchannels);
 
         if (read_data == NULL) {
                 return -1;
         }
 
-        PixelData *data;
-        if (corrected_width != (unsigned)rwidth || height != (unsigned)rheight) {
-                // 3 * uint8 for RGB!
-                unsigned char *new_data = malloc(3 * sizeof(unsigned char) * corrected_width * height);
-                stbir_resize_uint8_srgb(
-                    read_data, rwidth, rheight, 0,
-                    new_data, corrected_width, height, 0, 3);
+        float scale_w = (float)corrected_width / (float)rwidth;
+        float scale_h = (float)height / (float)rheight;
+        
+        int fit_w = (int)(rwidth * scale_w + 0.5f);
+        int fit_h = (int)(rheight * scale_h + 0.5f);
+        if (fit_w < 1)
+                fit_w = 1;
+        if (fit_h < 1)
+                fit_h = 1;
+        if (fit_w > (int)corrected_width)
+                fit_w = (int)corrected_width;
+        if (fit_h > (int)height)
+                fit_h = (int)height;
 
-                stbi_image_free(read_data);
-                data = (PixelData *)new_data;
-        } else {
-                data = (PixelData *)read_data;
+        unsigned char *composed =
+            calloc((size_t)3 * corrected_width * height, 1);
+        if (composed == NULL) {
+                image_free(read_data);
+                return -1;
         }
+
+        unsigned char *fit_pixels = read_data;
+        gboolean did_resize = FALSE;
+        if (fit_w != rwidth || fit_h != rheight) {
+                fit_pixels = malloc((size_t)3 * fit_w * fit_h);
+                if (fit_pixels == NULL) {
+                        image_free(read_data);
+                        free(composed);
+                        return -1;
+                }
+                image_resize_uint8_srgb(read_data, rwidth, rheight, fit_pixels,
+                                        fit_w, fit_h, 3);
+                image_free(read_data);
+                did_resize = TRUE;
+        }
+
+        int off_x = ((int)corrected_width - fit_w) / 2;
+        int off_y = ((int)height - fit_h) / 2;
+        for (int y = 0; y < fit_h; y++) {
+                for (int x = 0; x < fit_w; x++) {
+                        size_t dst =
+                            (size_t)((off_y + y) * (int)corrected_width +
+                                     (off_x + x)) *
+                            3;
+                        size_t src = ((size_t)y * (size_t)fit_w + (size_t)x) * 3;
+                        composed[dst + 0] = fit_pixels[src + 0];
+                        composed[dst + 1] = fit_pixels[src + 1];
+                        composed[dst + 2] = fit_pixels[src + 2];
+                }
+        }
+        if (did_resize)
+                free(fit_pixels);
+        else
+                image_free(fit_pixels);
+
+        PixelData *data = (PixelData *)composed;
 
         // Calculate indentation to center the image
         if (centered)
@@ -753,7 +760,7 @@ int convert_to_ascii(int row, int col, const char *filepath, unsigned int height
                 printf("\033[1;38;2;%03u;%03u;%03um%c", c->r, c->g, c->b, calc_ascii_char(c));
         }
 
-        stbi_image_free(data);
+        image_free(data);
         return 0;
 }
 

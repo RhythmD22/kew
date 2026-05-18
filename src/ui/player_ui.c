@@ -6,6 +6,8 @@
  * Acts as the central visual component of the terminal player.
  */
 
+#define _XOPEN_SOURCE 700
+
 #include "player_ui.h"
 
 #include "common/events.h"
@@ -27,9 +29,8 @@
 
 #include "data/directorytree.h"
 #include "data/img_func.h"
-#include "data/lyrics.h"
+
 #include "data/playlist.h"
-#include "data/song_loader.h"
 
 #include "sys/discord_rpc.h"
 #include "sys/sys_integration.h"
@@ -39,6 +40,7 @@
 
 #include "visuals.h"
 
+#include <glib.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -80,6 +82,7 @@ static int max_lib_list_size = 0;
 static int chosen_row = 0;               // The row that is chosen in playlist view
 static int chosen_lib_row = 0;           // The row that is chosen in library view
 static int chosen_search_result_row = 0; // The row that is chosen in search view
+static int chosen_lyrics_row = 0;        // The top row when scrolling on lyrics page
 static int lib_iter = 0;
 static int lib_song_iter = 0;
 static int lib_row_count = 0;
@@ -95,7 +98,6 @@ static int has_chroma = -1;
 static bool next_visualization_requested = false;
 static bool redraw_side_cover = true;
 static ViewState last_view = LIBRARY_VIEW;
-static const char *last_cover_path_ptr = NULL;
 static size_t last_cover_path_hash = (size_t)-1;
 
 void request_next_visualization(void)
@@ -1185,6 +1187,10 @@ int show_key_bindings(SongData *songdata)
                get_binding_string(EVENT_EXPORTPLAYLIST, false));
         CHECK_LIST_LIMIT();
         printf("\033[%d;%dH", ++num_printed_rows, indentation + 1);
+        printf(_(" · Show Folders in Playlist: %s"),
+               get_binding_string(EVENT_TOGGLEFOLDERDISPLAY, false));
+        CHECK_LIST_LIMIT();
+        printf("\033[%d;%dH", ++num_printed_rows, indentation + 1);
         printf(_(" · Add Song To 'kew favorites.m3u': %s (run with 'kew .')"),
                get_binding_string(EVENT_ADDTOFAVORITESPLAYLIST, false));
         num_printed_rows += 2;
@@ -1363,6 +1369,8 @@ void scroll_next(void)
                         chosen_search_result_row++;
                         trigger_refresh();
                 }
+        } else if (state->currentView == TRACK_VIEW && state->uiState.showLyricsPage) {
+                chosen_lyrics_row++;
         }
 }
 
@@ -1383,6 +1391,8 @@ void scroll_prev(void)
                 chosen_search_result_row =
                     (chosen_search_result_row > 0) ? chosen_search_result_row : 0;
                 trigger_refresh();
+        } else if (state->currentView == TRACK_VIEW && state->uiState.showLyricsPage) {
+                chosen_lyrics_row--;
         }
 }
 
@@ -1620,7 +1630,7 @@ void print_visualizer(int row, int col, int visualizer_width,
                 uis->num_progress_bars = (int)visualizer_width / 2;
                 double duration = get_current_song_duration();
 
-                draw_spectrum_visualizer(row, col, height, visualizer_width);
+                draw_spectrum_visualizer(sound_sys, row, col, height, visualizer_width);
 
                 int elapsed_bars =
                     calc_elapsed_bars(elapsed_seconds, duration, visualizer_width);
@@ -1651,6 +1661,7 @@ void set_chosen_dir(FileSystemEntry *entry)
 void reset_chosen_dir(void)
 {
         chosen_dir = NULL;
+        chosen_lib_row = 0;
 }
 
 void apply_tree_item_color(UISettings *ui, int depth,
@@ -1689,8 +1700,8 @@ int display_tree(FileSystemEntry *root, int depth, int max_list_size,
         if (max_name_width < 0)
                 max_name_width = 0;
 
-        char dir_name[max_name_width + 1];
-        char filename[PATH_MAX + 1];
+        gchar dir_name[max_name_width * 4 + 1];
+        gchar filename[max_name_width * 4 + 1];
         bool foundChosen = false;
         int is_playing = 0;
         int extra_indent = 0;
@@ -1839,15 +1850,15 @@ int display_tree(FileSystemEntry *root, int depth, int max_list_size,
                         if (root->is_directory) {
                                 dir_name[0] = '\0';
 
-                                if (strcmp(root->name, "root") == 0)
-                                        snprintf(dir_name,
-                                                 max_name_width + 1 - extra_indent,
-                                                 "%s", _("─ MUSIC LIBRARY ─"));
-                                else
-                                        snprintf(dir_name,
-                                                 max_name_width + 1 - extra_indent,
-                                                 "%s", root->name);
+                                if (strcmp(root->name, "root") == 0) {
 
+                                        size_t copy_bytes = sizeof(dir_name);
+                                        snprintf(dir_name,
+                                                 copy_bytes,
+                                                 "%s", _("─ MUSIC LIBRARY ─"));
+                                } else {
+                                        str_truncate_display_width(root->name, dir_name, max_name_width - extra_indent);
+                                }
                                 char *upper_dir_name = string_to_upper(dir_name);
 
                                 if (depth == 1) {
@@ -1855,9 +1866,6 @@ int display_tree(FileSystemEntry *root, int depth, int max_list_size,
                                 } else {
                                         printf("%s", dir_name);
                                 }
-
-                                if (strcmp(dir_name, "Warlord") == 0)
-                                        fflush(stdout);
 
                                 free(upper_dir_name);
                         } else {
@@ -1894,8 +1902,7 @@ int display_tree(FileSystemEntry *root, int depth, int max_list_size,
                                 printf("└─ ");
 
                                 // Playlist
-                                if (path_ends_with(root->full_path, "m3u") ||
-                                    path_ends_with(root->full_path, "m3u8")) {
+                                if (is_m3u_file(root)) {
                                         printf("♫ ");
                                         max_name_width = max_name_width - 2;
                                 }
@@ -1950,17 +1957,15 @@ void print_side_cover(SongData *songdata)
 
         last_view = state->currentView;
 
-        const char *current_ptr = songdata ? songdata->cover_art_path : NULL;
-        if (current_ptr != last_cover_path_ptr) {
-                last_cover_path_ptr = current_ptr;
-                last_cover_path_hash = current_ptr ? string_hash(current_ptr) : (size_t)-1;
+        const char *current_path = songdata ? songdata->cover_art_path : NULL;
+
+        // Compute hash of current path
+        size_t current_hash = current_path ? string_hash(current_path) : (size_t)-1;
+
+        // Determine if redraw is needed
+        if (current_hash != last_cover_path_hash) {
+                last_cover_path_hash = current_hash;
                 redraw_side_cover = true;
-        } else if (current_ptr != NULL) {
-                size_t current_hash = string_hash(current_ptr);
-                if (current_hash != last_cover_path_hash) {
-                        last_cover_path_hash = current_hash;
-                        redraw_side_cover = true;
-                }
         }
 
         if (state->currentView == TRACK_VIEW)
@@ -2182,14 +2187,38 @@ int calc_visualizer_width()
 void print_at(int row, int indent, const char *text, int max_width)
 {
         char buffer[1024];
-        size_t len = strlen(text);
+        size_t i = 0, out = 0;
+        int width = 0;
 
-        if (len > (size_t)max_width)
-                len = max_width;
+        mbstate_t state;
+        memset(&state, 0, sizeof(state));
 
-        // Safe copy of exactly len bytes
-        memcpy(buffer, text, len);
-        buffer[len] = '\0';
+        while (text[i]) {
+                wchar_t wc;
+                size_t len = mbrtowc(&wc, text + i, MB_CUR_MAX, &state);
+
+                if (len == (size_t)-1 || len == (size_t)-2)
+                        break;
+
+                int w = wcwidth(wc);
+                if (w < 0 || wc == L'\t' || wc == L'\n') {
+                        i += len;
+                        continue;
+                }
+
+                if (width + w > max_width)
+                        break;
+
+                if (out + len >= sizeof(buffer))
+                        break;
+
+                memcpy(buffer + out, text + i, len);
+                i += len;
+                out += len;
+                width += w;
+        }
+
+        buffer[out] = '\0';
 
         printf("\033[%d;%dH%s", row, indent, buffer);
 }
@@ -2222,6 +2251,17 @@ void print_lyrics_page(UISettings *ui, int row, int col, double seconds, SongDat
                 if (highlight > height / 2) {
                         // text scrolls and highlighted line stays in the middle
                         offset = highlight - (height / 2);
+                }
+        } else {
+                if (height < (int)lyrics->count) {
+                        if (chosen_lyrics_row < 0) {
+                                offset = 0;
+                        } else if (chosen_lyrics_row > (int)lyrics->count - height) {
+                                offset = (int)lyrics->count - height;
+                        } else {
+                                offset = chosen_lyrics_row;
+                        }
+                        chosen_lyrics_row = offset;
                 }
         }
 
@@ -2315,6 +2355,7 @@ void show_track_view_landscape(int height, int width, float aspect_ratio,
                                AppSettings *settings, SongData *songdata,
                                double elapsed_seconds)
 {
+        int sample_rate = get_current_sample_rate();
         AppState *state = get_app_state();
         TagSettings *metadata = NULL;
         int avg_bit_rate = 0;
@@ -2354,10 +2395,8 @@ void show_track_view_landscape(int height, int width, float aspect_ratio,
                 cancel_refresh();
         }
         if (songdata) {
-                ma_uint32 sample_rate;
-                ma_format format;
+
                 avg_bit_rate = songdata->avg_bit_rate;
-                get_format_and_sample_rate(&format, &sample_rate);
 
                 if (!state->uiState.showLyricsPage) {
 
@@ -2396,6 +2435,7 @@ void show_track_view_landscape(int height, int width, float aspect_ratio,
 void show_track_view_portrait(int height, AppSettings *settings,
                               SongData *songdata, double elapsed_seconds)
 {
+        int sample_rate = get_current_sample_rate();
         AppState *state = get_app_state();
         TagSettings *metadata = NULL;
         int avg_bit_rate = 0;
@@ -2430,15 +2470,12 @@ void show_track_view_portrait(int height, AppSettings *settings,
         }
         if (songdata) {
                 if (!state->uiState.showLyricsPage) {
-                        ma_uint32 sample_rate;
-                        ma_format format;
                         avg_bit_rate = songdata->avg_bit_rate;
 
                         if (chroma_is_started()) {
                                 chroma_print_frame(2, col + 1, true);
                         }
 
-                        get_format_and_sample_rate(&format, &sample_rate);
                         print_time(row + metadata_height, col, elapsed_seconds, sample_rate,
                                    avg_bit_rate, term_w - col);
 
@@ -2549,9 +2586,19 @@ int print_player(SongData *songdata, double elapsed_seconds)
 
                 if (songdata != NULL && songdata->metadata != NULL &&
                     !songdata->hasErrors && (songdata->hasErrors < 1)) {
-                        ui->color.r = songdata->red;
-                        ui->color.g = songdata->green;
-                        ui->color.b = songdata->blue;
+
+                        if (songdata->red < 0)
+                                songdata->red = ui->defaultColorRGB.b;
+
+                        if (songdata->green < 0)
+                                songdata->green = ui->defaultColorRGB.b;
+
+                        if (songdata->blue < 0)
+                                songdata->blue = ui->defaultColorRGB.b;
+
+                        ui->color.r = (char)songdata->red;
+                        ui->color.g = (char)songdata->green;
+                        ui->color.b = (char)songdata->blue;
 
                         if (ui->trackTitleAsWindowTitle)
                                 set_terminal_window_title(
@@ -2665,11 +2712,12 @@ void show_help(void)
 void save_library(void)
 {
         FileSystemEntry *library = get_library();
+        PlayList *playlist = get_playlist();
         char *filepath = get_library_file_path();
 
         reset_sort_library();
 
-        write_tree_to_binary(library, filepath);
+        write_tree_to_binary(library, filepath, playlist);
 
         free(filepath);
 }
@@ -2718,14 +2766,23 @@ void refresh_player()
                 notify_mpris_switch(get_current_song_data());
 
                 if (state->uiSettings.discordRPCEnabled)
-                        notify_discord_switch(get_current_song_data());
+                        notify_discord_update(get_current_song_data(), get_elapsed_seconds(), get_current_song_duration());
+
+                chosen_lyrics_row = 0;
+        }
+
+        if (ps->notifySeek) {
+                ps->notifySeek = false;
+
+                if (state->uiSettings.discordRPCEnabled)
+                        notify_discord_update(get_current_song_data(), get_elapsed_seconds(), get_current_song_duration());
         }
 
         if (state->uiSettings.discordRPCEnabled) {
                 if (is_paused() && !last_paused_state) {
                         notify_discord_pause();
                 } else if (!is_paused() && last_paused_state) {
-                        notify_discord_resume(get_current_song_data());
+                        notify_discord_update(get_current_song_data(), get_elapsed_seconds(), get_current_song_duration());
                 }
 
                 last_paused_state = is_paused();

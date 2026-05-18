@@ -111,6 +111,19 @@ void dequeue_children(FileSystemEntry *parent);
 void set_childrens_queued_status_on_parents(FileSystemEntry *parent, bool wanted_status);
 
 /**
+ * @brief Enqueues all music file siblings of a file in order according to track number
+ *
+ * Walks along the list of siblings and checks they are music files, then adds them to an array
+ * Array is then sorted and enqueued
+ *
+ * @param firstChild pointer to first file in album
+ *
+ * @return 1 if album wasn't NULL
+ */
+int enqueue_album(FileSystemEntry *firstChild,
+                  FileSystemEntry **first_enqueued);
+
+/**
  * @brief Recursively enqueue all songs under a directory.
  *
  * Traverses the subtree starting at the given entry and enqueues all
@@ -126,6 +139,21 @@ int enqueue_children(FileSystemEntry *child,
                      FileSystemEntry **first_enqueued_entry);
 
 /**
+ * @brief Recursively enqueue all songs under a directory, sorted by album and track number.
+ *
+ * Traverses the subtree starting at the given entry and enqueues
+ * albums when a leaf is reached, using enqueue_album()
+ *
+ * @param child Root of the subtree to enqueue.
+ * @param first_enqueued_entry Output parameter that receives the first
+ *                             enqueued FileSystemEntry, if any.
+ *
+ * @return 1 if at least one entry was enqueued, 0 otherwise.
+ */
+int enqueue_children_sorted(FileSystemEntry *child,
+                     FileSystemEntry **first_enqueued_entry);
+
+/**
  * @brief Mark a specific entry as dequeued by path.
  *
  * Recursively searches the tree for the entry matching the given path,
@@ -137,6 +165,16 @@ int enqueue_children(FileSystemEntry *child,
  * @return true if the entry was found and dequeued, false otherwise.
  */
 bool mark_as_dequeued(FileSystemEntry *root, char *path);
+
+/**
+ * @brief Clear is_enqueued on all M3U file entries in the library tree.
+ *
+ * Used when clearing the playlist to ensure M3U files lose their
+ * enqueued marker even though they are not playlist nodes.
+ *
+ * @param root Root of the library tree.
+ */
+void clear_all_m3u_enqueued_flags(FileSystemEntry *root);
 
 /**
  * @brief Determine whether an entry has any direct song children.
@@ -186,5 +224,36 @@ bool is_contained_within(FileSystemEntry *entry,
  * @param wait_until_complete If true, blocks until the update finishes.
  */
 void update_library_if_changed_detected(bool wait_until_complete);
+
+/**
+ * @brief Enqueue all songs referenced by an M3U playlist file.
+ *
+ * Parses the M3U file and adds one node per path to both the shuffled and
+ * unshuffled playlists, mirroring enqueue_children(). mark_as_enqueued() is
+ * called for each song so the library browser shows the * marker. The M3U
+ * entry itself must be marked by the caller after this function returns.
+ *
+ * @param filepath             Path to the .m3u / .m3u8 file to enqueue.
+ * @param library              Root of the library tree whose enqueued flags
+ *                             should be set.
+ * @param first_enqueued_node  Output: first Node added to the playlist, or
+ *                             NULL if nothing was added.
+ */
+void enqueue_m3u(const char *filepath, FileSystemEntry *library,
+                 Node **first_enqueued_node);
+
+/**
+ * @brief Dequeue all songs referenced by an M3U playlist file.
+ *
+ * Parses the M3U file and removes one node per path from both playlists,
+ * mirroring dequeue_children(). mark_as_dequeued() is called per song so
+ * sibling entries enqueued through other means retain their flags. The M3U
+ * entry itself must be cleared by the caller after this function returns.
+ *
+ * @param filepath Path to the .m3u / .m3u8 file to dequeue.
+ * @param library  Root of the library tree whose enqueued flags should be
+ *                 cleared.
+ */
+void dequeue_m3u(const char *filepath, FileSystemEntry *library);
 
 #endif

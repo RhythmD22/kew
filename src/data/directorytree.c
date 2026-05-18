@@ -83,7 +83,7 @@ static void collect_entries(FileSystemEntry *node, EntryArray *arr)
                 collect_entries(child, arr);
 }
 
-int write_tree_to_binary(FileSystemEntry *root, const char *filename)
+int write_tree_to_binary(FileSystemEntry *root, const char *filename, PlayList *playlist)
 {
         if (!root || !filename)
                 return -1;
@@ -140,6 +140,25 @@ int write_tree_to_binary(FileSystemEntry *root, const char *filename)
                         d->name_offset = (uint32_t)offset;
                         strcpy(&string_table[offset], n->name);
                         offset += strlen(n->name) + 1;
+
+                        if (playlist->head && n->is_enqueued)
+                        {
+                                Node *node = playlist->head;
+
+                                int count = 0;
+
+                                while (node != NULL)
+                                {
+                                        count++;
+
+                                        if (strcmp(node->song.file_path, n->full_path) == 0)
+                                        {
+                                                d->is_enqueued = count;
+                                        }
+
+                                        node = node->next;
+                                }
+                        }
                 } else {
                         d->name_offset = UINT32_MAX; // fallback if name is NULL
                 }
@@ -436,6 +455,7 @@ int compare_lib_entries(const struct dirent **a, const struct dirent **b)
         char *name_a = string_to_upper((*a)->d_name);
         char *name_b = string_to_upper((*b)->d_name);
 
+        // Underscore-prefixed entries go to the end
         if (name_a[0] == '_' && name_b[0] != '_') {
                 free(name_a);
                 free(name_b);
@@ -444,6 +464,19 @@ int compare_lib_entries(const struct dirent **a, const struct dirent **b)
                 free(name_a);
                 free(name_b);
                 return -1;
+        }
+
+        // m3u files go first
+        bool is_m3u_a = is_m3u((*a)->d_name);
+        bool is_m3u_b = is_m3u((*b)->d_name);
+        if (is_m3u_a && !is_m3u_b) {
+                free(name_a);
+                free(name_b);
+                return -1;
+        } else if (!is_m3u_a && is_m3u_b) {
+                free(name_a);
+                free(name_b);
+                return 1;
         }
 
         int result = natural_compare(name_a, name_b);
@@ -469,6 +502,7 @@ int compare_entry_natural(const void *a, const void *b)
         char *name_a = string_to_upper(entry_a->name);
         char *name_b = string_to_upper(entry_b->name);
 
+        // Underscore-prefixed entries go to the end
         if (name_a[0] == '_' && name_b[0] != '_') {
                 free(name_a);
                 free(name_b);
@@ -477,6 +511,19 @@ int compare_entry_natural(const void *a, const void *b)
                 free(name_a);
                 free(name_b);
                 return -1;
+        }
+
+        // m3u files go first
+        bool is_m3u_a = is_m3u(entry_a->name);
+        bool is_m3u_b = is_m3u(entry_b->name);
+        if (is_m3u_a && !is_m3u_b) {
+                free(name_a);
+                free(name_b);
+                return -1;
+        } else if (!is_m3u_a && is_m3u_b) {
+                free(name_a);
+                free(name_b);
+                return 1;
         }
 
         int result = natural_compare(name_a, name_b);
@@ -746,9 +793,11 @@ FileSystemEntry *read_tree_from_binary(
                 n->parent_id = d->parent_id;
                 n->is_directory = d->is_directory;
                 if (set_enqueued_status)
+                {
                         n->is_enqueued = d->is_enqueued;
-                else
+                } else
                         n->is_enqueued = 0;
+
                 if (d->name_offset == UINT32_MAX)
                         n->name = strdup(""); // empty name
                 else
@@ -1009,6 +1058,23 @@ FileSystemEntry *find_corresponding_entry(FileSystemEntry *tmp,
         return find_corresponding_entry(tmp->next, full_path);
 }
 
+bool is_m3u(const char *filename)
+{
+        if (filename == NULL)
+                return false;
+
+        return path_ends_with(filename, "m3u") ||
+               path_ends_with(filename, "m3u8");
+}
+
+bool is_m3u_file(const FileSystemEntry *entry)
+{
+        if (entry == NULL || entry->is_directory)
+                return false;
+
+        return is_m3u(entry->full_path);
+}
+
 void copy_is_enqueued(FileSystemEntry *library, FileSystemEntry *tmp)
 {
         if (library == NULL)
@@ -1106,3 +1172,21 @@ void sort_file_system_tree(FileSystemEntry *root,
                 child = child->next;
         }
 }
+
+unsigned long count_music_files_in_directory(FileSystemEntry *directory) {
+    unsigned long file_count = 0;
+    FileSystemEntry* child = directory->children;
+
+    while (child != NULL) {
+        if (child->is_directory && child->children != NULL) {
+            file_count += count_music_files_in_directory(child);
+        }
+        else if (is_music_file(child->name)) {
+            file_count++;
+        }
+        child = child->next;
+    }
+
+    return file_count;
+}
+

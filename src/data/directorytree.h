@@ -10,12 +10,12 @@
 #ifndef DIRECTORYTREE_H
 #define DIRECTORYTREE_H
 
+#include "playlist_type.h"
+#include "common/path_max.h"
+
 #include <dirent.h>
 #include <stdbool.h>
 
-#ifndef PATH_MAX
-#define PATH_MAX 4096
-#endif
 
 #ifndef FILE_SYSTEM_ENTRY
 #define FILE_SYSTEM_ENTRY
@@ -26,6 +26,7 @@ typedef struct FileSystemEntry {
         int is_directory;
         int is_enqueued;
         int parent_id;
+        int track_number;
         struct FileSystemEntry *parent;
         struct FileSystemEntry *children;
         struct FileSystemEntry *next;      // For siblings (next node in the same directory)
@@ -37,6 +38,8 @@ typedef struct FileSystemEntry {
 #define SLOWLOADING_CALLBACK
 typedef void (*SlowloadingCallback)(void);
 #endif
+
+#define MAX_SORT_SIZE 256
 
 /**
  * Creates a directory tree starting at the given path.
@@ -94,10 +97,11 @@ FileSystemEntry *read_tree_from_binary(
  *
  * @param root      The root of the tree to serialize
  * @param filename  Path to the output binary file
+ * @param playlist Contains the current play list which is saved to is_enqueued
  *
  * @return 0 on success, -1 on failure
  */
-int write_tree_to_binary(FileSystemEntry *root, const char *filename);
+int write_tree_to_binary(FileSystemEntry *root, const char *filename, PlayList *playlist);
 
 /**
  * Recursively performs a fuzzy search on a FileSystemEntry tree.
@@ -216,5 +220,39 @@ int compare_entry_natural(const void *a, const void *b);
  */
 FileSystemEntry *find_corresponding_entry(FileSystemEntry *tmp,
                                           const char *full_path);
+
+/**
+ * Checks if a filename has an M3U playlist extension.
+ *
+ * Examines the filename to determine if it has
+ * an .m3u or .m3u8 extension.
+ *
+ * @param filename  Filename to check
+ *
+ * @return true if the filename is an M3U file, false otherwise
+ */
+bool is_m3u(const char *filename);
+
+/**
+ * Checks if a FileSystemEntry is an M3U playlist file.
+ *
+ * Examines the full_path to determine if the entry has
+ * an .m3u or .m3u8 extension.
+ *
+ * @param entry  Pointer to the FileSystemEntry to check
+ *
+ * @return true if the entry is an M3U file, false otherwise
+ */
+bool is_m3u_file(const FileSystemEntry *entry);
+
+/**
+ * Counts the number of music files in a directory
+ * Walks down the directory's child subtree and checks if the files are music files
+ *
+ * @param directory Pointer to the FileSystemEntry to the directory root
+ *
+ * @return the number of music files in the directory and it's subdirectories
+ */
+unsigned long count_music_files_in_directory(FileSystemEntry *directory);
 
 #endif
