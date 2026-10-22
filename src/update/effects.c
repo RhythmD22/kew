@@ -24,13 +24,73 @@
 #include "sys/mpris.h"
 #include "sys/sys_integration.h"
 
+#include "data/playlist.h"
+
 #include "utils/term.h"
+#include "utils/utils.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #ifdef _WIN32
 #include <io.h>
 #include <windows.h>
 #else
 #include <sys/ioctl.h> /* ioctl */
+#endif
+
+#ifdef __APPLE__
+/* Push current track info into SketchyBar (macOS only).
+   Called from the per-tick path (not render_ui) so the elapsed time
+   updates live even when the UI isn't dirty. Only calls sketchybar(1)
+   when the label content actually changes to avoid fork/exec spam. */
+static void update_sketchybar(Model *model)
+{
+        static char last_sb_label[1024] = {0};
+
+        char timebuf[32];
+        double duration = (model->songdata_ok && model->songdata) ? model->songdata->duration : 0.0;
+        if (duration <= 0.0)
+                duration = model->song_duration > 0.0 ? model->song_duration : 1.0;
+        int el_min = (int)(model->elapsed_seconds / 60);
+        int el_sec = (int)model->elapsed_seconds % 60;
+        int tot_min = (int)(duration / 60);
+        int tot_sec = (int)duration % 60;
+        snprintf(timebuf, sizeof(timebuf), "%d:%02d/%d:%02d", el_min,
+                 el_sec, tot_min, tot_sec);
+
+        char new_label[512] = {0};
+
+        if (model->songdata_ok && model->songdata && model->songdata->metadata) {
+                const TagSettings *md = model->songdata->metadata;
+
+                if (strlen(md->artist) > 0)
+                        snprintf(new_label, sizeof(new_label),
+                                 "􀑪  %s - %s [%s]",
+                                 md->title, md->artist, timebuf);
+                else
+                        snprintf(new_label, sizeof(new_label),
+                                 "􀑪  %s [%s]",
+                                 md->title, timebuf);
+        } else {
+                Node *current_song = get_current_song();
+                if (current_song != NULL) {
+                        snprintf(new_label, sizeof(new_label),
+                                 "􀑪  %s [%s]",
+                                 current_song->song.file_path, timebuf);
+                }
+        }
+
+        if (strcmp(new_label, last_sb_label) != 0) {
+                c_strcpy(last_sb_label, new_label, sizeof(last_sb_label));
+                char sb_cmd[2048] = {0};
+                snprintf(sb_cmd, sizeof(sb_cmd),
+                         "/opt/homebrew/bin/sketchybar --set widgets.media label=\"%s\"",
+                         new_label);
+                system(sb_cmd);
+        }
+}
 #endif
 
 // kew uses the Model-View-Update pattern.
@@ -207,6 +267,10 @@ void run_tick_commands(Model *model)
                 if (model->state.currentView != TRACK_VIEW && visualizations_are_started())
                         visualizations_shutdown();
         }
+
+#ifdef __APPLE__
+        update_sketchybar(model);
+#endif
 }
 
 void run_command(UpdateResult result)

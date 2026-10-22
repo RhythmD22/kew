@@ -178,7 +178,7 @@ void determine_song_and_notify(void)
                 current->song.duration = model->songdata->duration;
         }
 
-        if (state->ui.lastNotifiedId != current->id && model->songdata_ok && model->songdata) {
+        if (current && state->ui.lastNotifiedId != current->id && model->songdata_ok && model->songdata) {
                 if (!isDeleted) {
                         notify_song_switch(model->songdata);
                 }
