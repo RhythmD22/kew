@@ -2,14 +2,25 @@
 
 ## kew 4.4.2
 
-#### Enhancements:
+#### Notice To Package Maintainers:
 
-- Fuzzy search. By @superb-striker.
+Some very large animated gif histories and the website were removed from git history using git-filter-repo. There's a script attached to the v4.4.1 release that verifies that nothing else was touched. See here:
+https://codeberg.org/ravachol/kew/releases/tag/v4.4.1
+
+#### Enhancements:
 
 - Winamp-style (projectm/milkdrop) visualizations on linux through a new plugin, pmstream. By @ravachol.
   How to install: https://codeberg.org/ravachol/pmstream
 
+- Fuzzy search. By @superb-striker.
+
 - Track if visualizations are enabled. By @ravachol.
+
+- Improved search result hierarchy and folder navigation. By @superb-striker.
+
+- Remembers your library sort order. By @ravachol. Suggested by @kase.
+
+- New settings visualizationsFps, visualizationsShowPresetInfo. By @ravachol.
 
 #### Bug fixes:
 
@@ -18,6 +29,10 @@
 - Bumped miniaudio to v0.11.25. By @ravachol. Suggested by @Surneval.
 
 - In playlist the 100th song was off by a column. By @ehatch.
+
+- Fix scrolling glitch in playlist view. By @arrbrants.
+
+- Re-enable name scrolling in playlist view. By @ravachol and @arrbrants.
 
 ## kew 4.4.1
 

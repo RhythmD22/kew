@@ -19,18 +19,26 @@
 #include <unistd.h>
 
 #ifndef _WIN32
-#include <poll.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <signal.h>
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#else
+#include <fcntl.h>
+#include <io.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <windows.h>
+
+#endif
 
 #define VIZ_MAX_ARGS 32
 
 extern char **environ;
-#endif
 
 typedef struct {
         const char *argv[VIZ_MAX_ARGS];
@@ -76,6 +84,14 @@ Visualizations g_viz = {
 #define VISUALIZATIONS_MAX_BUF (8 * 1024 * 1024)
 #define MAX_HEIGHT 4000
 
+#ifdef _WIN32
+typedef HANDLE viz_proc_t;
+#define VIZ_PROC_INVALID NULL
+#else
+typedef pid_t viz_proc_t;
+#define VIZ_PROC_INVALID ((pid_t) - 1)
+#endif
+
 volatile int visualizations_new_frame = 0;
 
 static int centered_indent = 0;
@@ -91,6 +107,7 @@ static void viz_push(VizCmd *c, const char *s)
 
 static void build_chroma_cmd(VizCmd *c)
 {
+        Model *model = get_model();
         AppSettings *settings = get_app_settings();
         bool has_device = settings->visualizationsDevice[0] != '\0';
 
@@ -104,6 +121,13 @@ static void build_chroma_cmd(VizCmd *c)
         viz_push(c, g_viz.provider);
         viz_push(c, "--stream");
         viz_push(c, c->stream);
+
+        if (model->state.settings.visualizationsFps > 0) {
+                viz_push(c, "--fps");
+                char fps[6];
+                snprintf(fps, sizeof(fps), "%d", model->state.settings.visualizationsFps);
+                viz_push(c, fps);
+        }
 
         if (settings->chromaPath[0] == '\0') {
                 viz_push(c, "--preset");
@@ -154,13 +178,22 @@ static void build_generic_cmd(VizCmd *c)
                 viz_push(c, settings->visualizationsDevice);
         }
 
-        viz_push(c, "--sendinfo");
+        if (model->state.settings.visualizationsShowPresetInfo)
+                viz_push(c, "--sendinfo");
+
+        if (model->state.settings.visualizationsFps > 0) {
+                viz_push(c, "--fps");
+                char fps[12];
+                snprintf(fps, sizeof(fps), "%d", model->state.settings.visualizationsFps);
+                viz_push(c, fps);
+        }
         viz_push(c, "--mode");
         viz_push(c, g_viz.mode == VIZ_SIXELS ? "sixels" : "ascii");
         viz_push(c, "--cell-size");
         viz_push(c, c->cellsize);
 }
 
+#ifndef _WIN32
 // Starts the child with its stdout connected to a pipe. Returns the pid
 // (or -1) and puts the read end of the pipe in *out_fd. No shell is involved.
 static pid_t viz_spawn(const char *const argv[], int *out_fd)
@@ -207,6 +240,135 @@ static void viz_stop(pid_t pid, int fd)
         waitpid(pid, NULL, 0);
 }
 
+#else
+
+static char *viz_build_cmdline(const char *const argv[])
+{
+        size_t cap = 1;
+        for (int i = 0; argv[i]; i++)
+                cap += 2 * strlen(argv[i]) + 3;
+
+        char *buf = malloc(cap);
+        if (!buf)
+                return NULL;
+
+        char *p = buf;
+        for (int i = 0; argv[i]; i++) {
+                const char *a = argv[i];
+                if (i > 0)
+                        *p++ = ' ';
+
+                if (*a && !strpbrk(a, " \t\n\v\"")) {
+                        size_t n = strlen(a);
+                        memcpy(p, a, n);
+                        p += n;
+                        continue;
+                }
+
+                *p++ = '"';
+                for (;; a++) {
+                        size_t bs = 0;
+                        while (*a == '\\') {
+                                a++;
+                                bs++;
+                        }
+                        if (*a == '\0') {
+                                // Backslashes before the closing quote must be doubled
+                                for (size_t k = 0; k < bs * 2; k++)
+                                        *p++ = '\\';
+                                break;
+                        } else if (*a == '"') {
+                                for (size_t k = 0; k < bs * 2 + 1; k++)
+                                        *p++ = '\\';
+                                *p++ = '"';
+                        } else {
+                                for (size_t k = 0; k < bs; k++)
+                                        *p++ = '\\';
+                                *p++ = *a;
+                        }
+                }
+                *p++ = '"';
+        }
+        *p = '\0';
+        return buf;
+}
+
+static viz_proc_t viz_spawn(const char *const argv[], int *out_fd)
+{
+        viz_proc_t result = NULL;
+        HANDLE rd = NULL, wr = NULL;
+        HANDLE nul = INVALID_HANDLE_VALUE;
+        PROCESS_INFORMATION pi = {0};
+        STARTUPINFOA si = {0};
+        SECURITY_ATTRIBUTES sa = {sizeof(sa), NULL, TRUE};
+        int fd;
+
+        char *cmd = viz_build_cmdline(argv);
+        if (!cmd)
+                return NULL;
+
+        if (!CreatePipe(&rd, &wr, &sa, 0))
+                goto done;
+
+        // Don't leak the read end into the child
+        if (!SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0))
+                goto done;
+
+        nul = CreateFileA("NUL", GENERIC_READ | GENERIC_WRITE,
+                          FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
+                          OPEN_EXISTING, 0, NULL);
+        if (nul == INVALID_HANDLE_VALUE)
+                goto done;
+
+        si.cb = sizeof(si);
+        si.dwFlags = STARTF_USESTDHANDLES;
+        si.hStdInput = nul; // Like /dev/null
+        si.hStdOutput = wr;
+        si.hStdError = nul; // Keep child stderr from scribbling over the TUI
+
+        if (!CreateProcessA(NULL, cmd, NULL, NULL, TRUE, CREATE_NO_WINDOW,
+                            NULL, NULL, &si, &pi))
+                goto done;
+
+        CloseHandle(pi.hThread);
+
+        // The CRT fd now owns the read handle; close() will close it
+        fd = _open_osfhandle((intptr_t)rd, _O_RDONLY | _O_BINARY);
+        if (fd < 0) {
+                TerminateProcess(pi.hProcess, 1);
+                CloseHandle(pi.hProcess);
+                goto done;
+        }
+
+        rd = NULL; // Ownership transferred
+        *out_fd = fd;
+        result = pi.hProcess;
+
+done:
+        if (wr)
+                CloseHandle(wr);
+        if (rd)
+                CloseHandle(rd);
+        if (nul != INVALID_HANDLE_VALUE)
+                CloseHandle(nul);
+        free(cmd);
+        return result;
+}
+
+static void viz_stop(viz_proc_t proc, int fd)
+{
+        close(fd); // Similar to SIGTERM
+
+        if (WaitForSingleObject(proc, 1000) == WAIT_TIMEOUT) {
+                TerminateProcess(proc, 1); // the SIGKILL equivalent
+                WaitForSingleObject(proc, INFINITE);
+        }
+
+        CloseHandle(proc);
+}
+
+#endif
+
 int calc_visualizations_width(int height)
 {
         TermSize ts;
@@ -252,12 +414,23 @@ static void *visualizer_thread(void *arg)
                 height = MAX_HEIGHT;
 
         int synced = 0;
+        int ok;
 
-        g_viz.frame_capacity = VISUALIZATIONS_MAX_BUF;
-        g_viz.frame = malloc(g_viz.frame_capacity);
+        pthread_mutex_lock(&g_viz.lock);
         if (!g_viz.frame) {
-                quit();
+                g_viz.frame = malloc(VISUALIZATIONS_MAX_BUF);
+                if (g_viz.frame)
+                        g_viz.frame_capacity = VISUALIZATIONS_MAX_BUF;
         }
+        ok = (g_viz.frame != NULL);
+        if (ok) {
+                g_viz.frame[0] = '\0';
+                visualizations_new_frame = 0; // don't show a stale frame from the previous run
+        }
+        pthread_mutex_unlock(&g_viz.lock);
+
+        if (!ok)
+                quit();
 
         g_viz.frame[0] = '\0';
 
@@ -279,8 +452,9 @@ static void *visualizer_thread(void *arg)
                 }
 
                 int fd = -1;
-                pid_t pid = viz_spawn(cmd.argv, &fd);
-                if (pid < 0) {
+                viz_proc_t pid = viz_spawn(cmd.argv, &fd);
+
+                if (pid == VIZ_PROC_INVALID) {
                         usleep(200 * 1000);
                         continue;
                 }
@@ -298,12 +472,20 @@ static void *visualizer_thread(void *arg)
 
                 while (g_viz.running) {
 
-#ifndef _WIN32
+#ifdef _WIN32
+                        DWORD avail = 0;
+                        if (!PeekNamedPipe((HANDLE)_get_osfhandle(fd), NULL, 0,
+                                           NULL, &avail, NULL))
+                                break; // ERROR_BROKEN_PIPE: child exited
+                        if (avail == 0) {
+                                Sleep(10);
+                                continue; // re-check g_viz.running
+                        }
+#else
                         struct pollfd pfd = {.fd = fd, .events = POLLIN};
                         int pr = poll(&pfd, 1, 100);
-
                         if (pr == 0)
-                                continue; // timeout, re-check g_viz.running
+                                continue;
                         if (pr < 0) {
                                 if (errno == EINTR)
                                         continue;
@@ -311,6 +493,7 @@ static void *visualizer_thread(void *arg)
                         }
 #endif
                         ssize_t r = read(fd, buf + pos, VISUALIZATIONS_MAX_BUF - pos);
+
                         if (r <= 0)
                                 break; // EOF or error
 
@@ -318,11 +501,12 @@ static void *visualizer_thread(void *arg)
                         size_t start = 0;     // start of unprocessed bytes
 
                         for (size_t i = pos; i < end; i++) {
-                                if (buf[i] == '\n') {
+                                if (buf[i] == '\r')
+                                        continue; // tolerate CRLF from Windows children
+                                else if (buf[i] == '\n')
                                         nl_streak++;
-                                } else {
+                                else
                                         nl_streak = 0;
-                                }
 
                                 if (nl_streak == 2) {
                                         size_t frame_len = i - start + 1;
@@ -391,8 +575,7 @@ void visualizations_set_current_preset(int preset)
                 else
                         snprintf(error_message, sizeof(error_message), "Visualizations Preset %d", preset);
 
-        }
-        else {
+        } else {
                 snprintf(error_message, sizeof(error_message), "Visualizations Switched Preset");
         }
 
@@ -584,19 +767,19 @@ void visualizations_print_frame(int row, int col, int height, int width,
 
 #ifdef _WIN32
 
-#include <windows.h>
-
-bool visualizations_are_installed(const char *appname)
-{
+bool visualizations_are_installed(char *appname){
         char path[MAX_PATH];
+        char exe_name[MAX_PATH];
+
+        snprintf(exe_name, sizeof(exe_name), "%s.exe", appname);
 
         return SearchPathA(
-                   NULL,
-                   appname,
-                   NULL,
-                   sizeof(path),
-                   path,
-                   NULL) != 0;
+                NULL,
+                exe_name,
+                NULL,
+                sizeof(path),
+                path,
+                NULL) != 0;
 }
 
 #else

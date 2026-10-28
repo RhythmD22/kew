@@ -35,7 +35,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
 #endif
 
 #ifndef KEW_VERSION
-#define KEW_VERSION "4.4.1"
+#define KEW_VERSION "4.4.2"
 #endif
 
 #include "common/appstate.h"
@@ -761,19 +761,22 @@ void state_init(void)
         state->settings.visualizationsPreset = -1;
         state->settings.lastVolume = 100;
         state->settings.collapseTopLevel = true;
+        state->settings.autoCloseFolders = true;
         state->settings.colorMode = COLOR_MODE_ALBUM;
         state->settings.fade_enter_song_ms = 0;
         state->settings.fade_quick_ms = 2000;
         state->settings.fade_medium_ms = 3000;
         state->settings.fade_slow_ms = 5000;
         state->settings.visualizationsMode = 1;
+        state->settings.visualizationsShowPresetInfo = 0;
+        state->settings.visualizationsFps = 16;
         state->settings.visualizationsEnabled = false;
+        state->settings.current_library_sort = SORT_BY_NAME;
         state->ui.numDirectoryTreeEntries = 0;
         state->ui.num_progress_bars = DEFAULT_NUM_PROGRESS_BARS;
         state->ui.chosen_node_id = 0;
         state->ui.resetPlaylistDisplay = true;
         state->ui.allowChooseSongs = false;
-        state->ui.allowChooseSearchSongs = false;
         state->ui.resizeFlag = 0;
         state->ui.refresh = true;
         state->ui.isFastForwarding = false;
@@ -805,7 +808,6 @@ void state_init(void)
         state->ui.chosen_row = 0;
         state->ui.chosen_dir = NULL;
         state->ui.start_iter = 0;
-        state->ui.previous_chosen_song = 0;
         state->ui.render_often = false;
         state->ui.render_search = false;
         state->ui.chosen_lyrics_row = 0;
@@ -824,7 +826,6 @@ void state_init(void)
         state->ui.search_scrollbar.last_position = 0;
         state->ui.help_scrollbar.position = 0;
         state->ui.help_scrollbar.last_position = 0;
-        state->ui.current_library_sort = SORT_BY_NAME;
 
         ps->lastPlayedId = -1;
         ps->nextSongNeedsRebuilding = false;

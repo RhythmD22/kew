@@ -106,7 +106,7 @@ TBKeyBinding key_bindings[MAX_KEY_BINDINGS] = {
     {0, 'f', 0, MSG_MOVESONGUP, ""},
     {0, 'g', 0, MSG_MOVESONGDOWN, ""},
 
-    {TB_KEY_ENTER, 0, 0, MSG_ENQUEUE, ""},
+    {TB_KEY_ENTER, 0, 0, MSG_EXPAND_FOLDER, ""},
     {TB_KEY_BACKSPACE, 0, 0, MSG_CLEARPLAYLIST, ""},
 
     {TB_KEY_CTRL_G, 0, TB_MOD_CTRL, MSG_ENQUEUEANDPLAY, ""},
@@ -253,6 +253,14 @@ const char *get_key_name(int key)
                         return key_map[i].name;
         }
 
+        // Ctrl+letter bindings use ASCII control codes rather than printable chars.
+        if (key >= TB_KEY_CTRL_A && key <= TB_KEY_CTRL_Z) {
+                static char ctrl_letter[2];
+                ctrl_letter[0] = 'a' + (key - TB_KEY_CTRL_A);
+                ctrl_letter[1] = '\0';
+                return ctrl_letter;
+        }
+
         // Printable ASCII fallback
         static char buf[2];
         if (key >= 32 && key <= 126) {
@@ -304,24 +312,6 @@ static uint16_t key_name_to_code(const char *name)
                 return (uint16_t)(unsigned char)name[0];
 
         return 0;
-}
-
-static const char *key_code_to_name(uint16_t code)
-{
-        for (int i = 0; key_map[i].name != NULL; i++) {
-                if (key_map[i].code == code)
-                        return key_map[i].name;
-        }
-
-        // If code is printable ASCII, return it as a string
-        static char buf[2];
-        if (code >= 32 && code <= 126) {
-                buf[0] = (char)code;
-                buf[1] = '\0';
-                return buf;
-        }
-
-        return "Unknown";
 }
 
 TBKeyBinding *get_key_bindings()
@@ -759,6 +749,9 @@ static const EventMap event_map[] = {
     {"prevPage", MSG_PREV_PAGE},
     {"remove", MSG_REMOVE},
     {"search", MSG_SEARCH},
+    {"expandFolder", MSG_EXPAND_FOLDER},
+    {"collapseFolder", MSG_COLLAPSE_FOLDER},
+    {"switchSearchFocus", MSG_SEARCH_FOCUS},
     {"nextView", MSG_NEXTVIEW},
     {"prevView", MSG_PREVVIEW},
     {"clearPlaylist", MSG_CLEARPLAYLIST},
@@ -949,6 +942,7 @@ void set_default_config(AppSettings *settings)
         c_strcpy(settings->hideHelp, "0", sizeof(settings->hideHelp));
         c_strcpy(settings->hideSideCover, "0", sizeof(settings->hideSideCover));
         c_strcpy(settings->collapseTopLevel, "0", sizeof(settings->collapseTopLevel));
+        c_strcpy(settings->autoCloseFolders, "1", sizeof(settings->autoCloseFolders));
         c_strcpy(settings->searchHierarchy, "0", sizeof(settings->searchHierarchy));
         c_strcpy(settings->hideTimeStatus, "0", sizeof(settings->hideTimeStatus));
         c_strcpy(settings->simpleTimeStatus, "1", sizeof(settings->simpleTimeStatus));
@@ -967,6 +961,8 @@ void set_default_config(AppSettings *settings)
         c_strcpy(settings->fade_medium_ms, "5000", sizeof(settings->fade_medium_ms));
         c_strcpy(settings->fade_slow_ms, "10000", sizeof(settings->fade_slow_ms));
         c_strcpy(settings->visualizationsMode, "1", sizeof(settings->visualizationsMode));
+        c_strcpy(settings->visualizationsShowPresetInfo, "0", sizeof(settings->visualizationsShowPresetInfo));
+        c_strcpy(settings->visualizationsFps, "0", sizeof(settings->visualizationsFps));
 
         memcpy(settings->ansiTheme, "default", 8);
 }
@@ -1185,8 +1181,40 @@ static char *parse_field(char **s)
                         break; // avoid overflow
         }
 
+        if (!in_quotes) {
+                while (idx > 0 && isspace((unsigned char)buffer[idx - 1]))
+                        idx--;
+        }
         buffer[idx] = '\0';
         return strdup(buffer); // return a copy
+}
+
+static bool has_matching_expand_binding(KeyValuePair *pairs, int count,
+                                        const TBKeyBinding *enqueue_binding)
+{
+        for (int i = 0; i < count; i++) {
+                if (k_stricmp(pairs[i].key, "bind") != 0)
+                        continue;
+
+                char value_copy[256];
+                c_strcpy(value_copy, pairs[i].value, sizeof(value_copy));
+                char *field = value_copy;
+                char *key = parse_field(&field);
+                char *action = parse_field(&field);
+                bool matches = false;
+
+                if (key && action && parse_to_event(action) == MSG_EXPAND_FOLDER) {
+                        TBKeyBinding expand = parse_binding(key, action, NULL);
+                        matches = expand.key == enqueue_binding->key &&
+                                  expand.ch == enqueue_binding->ch &&
+                                  expand.mods == enqueue_binding->mods;
+                }
+                free(key);
+                free(action);
+                if (matches)
+                        return true;
+        }
+        return false;
 }
 
 void construct_app_settings(AppSettings *settings, KeyValuePair *pairs, int count, bool is_prefs)
@@ -1224,6 +1252,12 @@ void construct_app_settings(AppSettings *settings, KeyValuePair *pairs, int coun
                 } else if (strcmp(lowercase_key, "visualizationsmode") == 0) {
                         snprintf(settings->visualizationsMode, sizeof(settings->visualizationsMode), "%s",
                                  pair->value);
+                } else if (strcmp(lowercase_key, "visualizationsfps") == 0) {
+                        snprintf(settings->visualizationsFps, sizeof(settings->visualizationsFps), "%s",
+                                 pair->value);
+                } else if (strcmp(lowercase_key, "visualizationsshowpresetinfo") == 0) {
+                        snprintf(settings->visualizationsShowPresetInfo, sizeof(settings->visualizationsShowPresetInfo), "%s",
+                                 pair->value);
                 } else if (strcmp(lowercase_key, "visualizationsenabled") == 0) {
                         snprintf(settings->visualizationsEnabled, sizeof(settings->visualizationsEnabled), "%s",
                                  pair->value);
@@ -1233,6 +1267,9 @@ void construct_app_settings(AppSettings *settings, KeyValuePair *pairs, int coun
                                  pair->value);
                 } else if (strcmp(lowercase_key, "coveransi") == 0) {
                         snprintf(settings->coverAnsi, sizeof(settings->coverAnsi),
+                                 "%s", pair->value);
+                } else if (strcmp(lowercase_key, "librarysortorder") == 0) {
+                        snprintf(settings->librarySortOrder, sizeof(settings->librarySortOrder),
                                  "%s", pair->value);
                 } else if (strcmp(lowercase_key, "coverstyle") == 0) {
                         if (!is_prefs)
@@ -1520,6 +1557,9 @@ void construct_app_settings(AppSettings *settings, KeyValuePair *pairs, int coun
                 } else if (strcmp(lowercase_key, "collapsetoplevel") == 0) {
                         snprintf(settings->collapseTopLevel, sizeof(settings->collapseTopLevel),
                                  "%s", pair->value);
+                } else if (strcmp(lowercase_key, "autoclosefolders") == 0) {
+                        snprintf(settings->autoCloseFolders, sizeof(settings->autoCloseFolders),
+                                 "%s", pair->value);
                 } else if (strcmp(lowercase_key, "searchhierarchy") == 0) {
                         if (!is_prefs)
                                 snprintf(settings->searchHierarchy,
@@ -1685,6 +1725,9 @@ void construct_app_settings(AppSettings *settings, KeyValuePair *pairs, int coun
                                         args_str = "";
 
                                 TBKeyBinding kb = parse_binding(binding_str, event_str, args_str);
+                                if (kb.eventType == MSG_ENQUEUE &&
+                                    has_matching_expand_binding(pairs, count, &kb))
+                                        kb.eventType = MSG_EXPAND_FOLDER;
                                 add_key_binding(kb);
                         }
 
@@ -1928,6 +1971,16 @@ void load_settings_into_ui(AppSettings *settings, UISettings *ui_settings)
         if (tmp >= 0)
                 ui_settings->visualizationsMode = tmp;
 
+        tmp = get_number(settings->visualizationsShowPresetInfo);
+        if (tmp >= 0)
+                ui_settings->visualizationsShowPresetInfo = tmp;
+
+        tmp = get_number(settings->visualizationsFps);
+        if (tmp > 0)
+                ui_settings->visualizationsFps = tmp;
+
+
+
         tmp = get_number(settings->visualizationsEnabled);
         if (tmp >= 0)
                 ui_settings->visualizationsEnabled = tmp;
@@ -2077,6 +2130,8 @@ void set_prefs(AppSettings *settings, UISettings *ui_settings)
                 fprintf(file, "shuffleEnabled=%s\n\n", settings->shuffle_enabled);
         }
 
+        fprintf(file, "librarySortOrder=%d\n\n", ui_settings->current_library_sort);
+
         fprintf(file, "lastVolume=%s\n\n", settings->lastVolume);
         fprintf(file, "[track cover]\n\n");
         fprintf(file, "coverAnsi=%s\n\n", settings->coverAnsi);
@@ -2126,11 +2181,8 @@ static const char *key_binding_to_str(const TBKeyBinding kb)
         // Key
         if (kb.key != 0) {
                 // Special key
-                const char *key_name = key_code_to_name(kb.key);
-                if (key_name)
-                        strcat(buf, key_name);
-                else
-                        sprintf(buf + strlen(buf), "0x%x", kb.key);
+                const char *key_name = get_key_name(kb.key);
+                strcat(buf, *key_name ? key_name : "Unknown");
         } else if (kb.ch != 0) {
                 // Printable character
                 size_t len = strlen(buf);
@@ -2304,6 +2356,11 @@ void set_config(AppSettings *settings, UISettings *ui)
                                                 sizeof(settings->collapseTopLevel))
                                      : c_strcpy(settings->collapseTopLevel, "0",
                                                 sizeof(settings->collapseTopLevel));
+        if (settings->autoCloseFolders[0] == '\0')
+                ui->autoCloseFolders ? c_strcpy(settings->autoCloseFolders, "1",
+                                                sizeof(settings->autoCloseFolders))
+                                     : c_strcpy(settings->autoCloseFolders, "0",
+                                                sizeof(settings->autoCloseFolders));
 
         if (settings->visualizer_height[0] == '\0')
                 snprintf(settings->visualizer_height,
@@ -2357,6 +2414,8 @@ void set_config(AppSettings *settings, UISettings *ui)
         fprintf(file, "hideSideCover=%s\n", settings->hideSideCover);
         fprintf(file, "\n# Show only top level folders.\n\n");
         fprintf(file, "collapseTopLevel=%s\n\n", settings->collapseTopLevel);
+        fprintf(file, "# Keep independently opened folders visible in Library and Search when set to 0.\n\n");
+        fprintf(file, "autoCloseFolders=%s\n\n", settings->autoCloseFolders);
         fprintf(file, "\n# Resume last playing song when starting kew.\n\n");
         fprintf(file, "autoResume=%s\n\n", settings->auto_resume);
 
@@ -2443,6 +2502,11 @@ void set_config(AppSettings *settings, UISettings *ui)
         fprintf(file, "visualizationsPath=%s\n", settings->visualizationsPath);
         fprintf(file, "\n# Visualizations mode 0 = ASCII 1 = SIXELS.\n\n");
         fprintf(file, "visualizationsMode=%d\n\n", ui->visualizationsMode);
+        fprintf(file, "\n# Visualizations Frames Per Second.\n\n");
+        fprintf(file, "visualizationsFps=%d\n\n", ui->visualizationsFps);
+        fprintf(file, "\n# Visualizations Show Preset Author and Name (works in pmstream) 0 = No 1 = Yes.\n\n");
+        fprintf(file, "visualizationsShowPresetInfo=%d\n\n", ui->visualizationsShowPresetInfo);
+
 
         fprintf(file, "\n[spectrum visualizer]\n\n");
         fprintf(file, "# Spectrum Visualizer mode: 0=lighten, 1=flat, 2=reversed lighten, 3=party, 4=vibrant. 5=lum vibrant 6=binning 7=two color gradient 8=off.\n\n");
@@ -2510,7 +2574,10 @@ void set_config(AppSettings *settings, UISettings *ui)
                 settings->progressBarCurrentOddChar);
 
         fprintf(file, "\n[key bindings]\n\n");
-        fprintf(file, "Note:Ctrl+h/i/m are indistinguishable from Backspace/Tab/Enter\n\n");
+        fprintf(file, "# Optional actions without default keys; uncomment and change the keys to use them:\n");
+        fprintf(file, "# bind = Shift+e, collapseFolder\n");
+        fprintf(file, "# bind = Ctrl+f, switchSearchFocus      # toggles between editing the query and navigating results.\n");
+        fprintf(file, "#Note:Ctrl+h/i/m are indistinguishable from Backspace/Tab/Enter.\n\n");
 
         for (size_t i = 0; i < keybinding_count; i++) {
                 fprintf(file, "bind = ");

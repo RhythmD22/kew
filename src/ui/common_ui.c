@@ -150,6 +150,7 @@ void transfer_settings_to_ui(void)
         ui_settings->hideFooter = (settings->hideFooter[0] == '1');
         ui_settings->hideSideCover = (settings->hideSideCover[0] == '1');
         ui_settings->collapseTopLevel = (settings->collapseTopLevel[0] == '1');
+        ui_settings->autoCloseFolders = (settings->autoCloseFolders[0] != '0');
         ui_settings->searchHierarchy = (settings->searchHierarchy[0] == '1');
         ui_settings->saveRepeatShuffleSettings = (settings->saveRepeatShuffleSettings[0] == '1');
         ui_settings->trackTitleAsWindowTitle = (settings->trackTitleAsWindowTitle[0] == '1');
@@ -198,6 +199,11 @@ void transfer_settings_to_ui(void)
         tmp = get_number(settings->colorMode);
         if (tmp >= 0 && tmp <= COLOR_MODE_NEUTRAL) {
                 ui_settings->colorMode = tmp;
+        }
+
+        tmp = get_number(settings->librarySortOrder);
+        if (tmp >= 0) {
+                ui_settings->current_library_sort = tmp;
         }
 
         tmp = get_number(settings->replayGainCheckFirst);
@@ -449,8 +455,16 @@ int process_name_scroll(const Model *model, const char *name, char *output, int 
 
         if (name_width < max_width - 1) {
                 process_name(name, output, max_width, strip_unneeded_chars, strip_suffix);
-        } else if (model->name_scroll.frame >= 0 && model->name_scroll.frame + max_width <= name_width) {
-                gchar *tmp = g_utf8_substring(output, model->name_scroll.frame, -1);
+        } else if (model->name_scroll.frame >= 0) {
+                int max_start = name_width - max_width;
+                int scroll_start = model->name_scroll.frame;
+
+                if (max_start < 0)
+                        max_start = 0;
+                if (scroll_start > max_start)
+                        scroll_start = max_start;
+
+                gchar *tmp = g_utf8_substring(output, scroll_start, -1);
                 str_truncate_display_width(tmp, output, max_width);
                 g_free(tmp);
         } else {
